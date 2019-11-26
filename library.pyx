@@ -41,10 +41,6 @@ cdef public void predict(
     size_t batch_size
 ):
     pass
-    # try:
-        # return net(X)
-    # except Exception as e:
-        # print(e)
 
 
 cdef public void step_net(
@@ -71,7 +67,7 @@ cdef public void mnist_batch(float* batch, size_t bs):
 
 
 cdef public void create_c_network(Network* c_net):
-    net = _create_network()
+    net = create_network()
     c_net.n_layers = len(net.layers)
     c_net.layers = <Dense*>malloc(sizeof(Dense) * c_net.n_layers)
     for i, l in enumerate(net.layers):
@@ -85,14 +81,25 @@ cdef public void create_c_network(Network* c_net):
         c_net.layers[i].ownmem = 1
 
 
+cdef public void frankenstein(Network* c_frank, Network* c_nets,
+                              size_t num_nets):
+    """ONE-LINER HOW BOUT THAT HUH."""
+    combo_net(
+        wrap_c_network(c_frank),
+        [wrap_c_network(&c_nets[i]) for i in range(num_nets)]
+    )
+
+
 cdef public void be_like(Network* c_dst, Network* c_src):
+    """Conveniently transform one C network into another."""
     dst = wrap_c_network(c_dst)
     src = wrap_c_network(c_src)
     dst.be_like(src)
 
 
 cdef object wrap_c_network(Network* c_net):
-    net = _create_network(init=False)
+    """Create a thin wrapper not owning the memory."""
+    net = create_network(init=False)
     for i, l in enumerate(net.layers):
         d0, d1 = l.W.shape
         l.W = np.asarray(<float[:d0,:d1]>c_net.layers[i].W)
@@ -100,18 +107,23 @@ cdef object wrap_c_network(Network* c_net):
     return net
 
 
-cdef void inspect_array(
-    np.ndarray[np.float32_t, ndim=2, mode='c'] a
-):
+def inspect_array(a):
     print(a.flags, flush=True)
     print(a.dtype, flush=True)
     print(a.sum(), flush=True)
 
 
-def _create_network(init=True):
+def create_network(init=True):
     return mn.Network((784, 10), mn.relu, mn.sigmoid, mn.bin_x_entropy,
                       initialize=init)
 
 
-def combo_net(nets):
-    return mn.combo_net(nets)
+def combo_net(net, nets, alpha=None):
+    tot = len(nets)
+    if alpha is None:
+        alpha = [1 / tot] * tot
+    for l in net.layers:
+        l.set_weights(np.zeros_like(t) for t in l.trainables())
+    for n, a in zip(nets, alpha):
+        for la, lb in zip(n.layers, net.layers):
+            lb.update(t * a for t in la.trainables())
