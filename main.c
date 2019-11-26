@@ -11,14 +11,21 @@
 #define P_SLAVE 1
 #define P_MASTER 2
 
-#define COMM 100
-#define ITER 20
-#define BS 50
+#define COMM 50
+#define ITER 32
+#define BS 32
+
+typedef enum{
+    DATA,
+    SLAVE,
+    MASTER
+} Role;
+
 
 // Reads some data and converts it to 2D float array
 void data_reader() {
     while (1) {
-        PyArrayObject* batch = mnist_batch(10);
+        PyArrayObject* batch = mnist_batch(BS);
 
         long* shape = PyArray_SHAPE(batch);
         MPI_Send(shape, 2, MPI_LONG, P_SLAVE, 0, MPI_COMM_WORLD);
@@ -26,6 +33,51 @@ void data_reader() {
                 P_SLAVE, 0, MPI_COMM_WORLD);
         Py_DECREF(batch);
     }
+}
+
+void send_network(Network* c_net, int dest, int tag) {
+    Py_ssize_t n_layers = c_net->n_layers;
+    MPI_Send(&n_layers, 1, MPI_LONG, dest, tag, MPI_COMM_WORLD);
+    for (Py_ssize_t i = 0; i < n_layers; i++) {
+        long d0 = c_net->layers[i].shape[0];
+        long d1 = c_net->layers[i].shape[1];
+
+        MPI_Send(c_net->layers[i].shape, 2, MPI_LONG, dest, tag,
+                MPI_COMM_WORLD);
+        MPI_Send(c_net->layers[i].W, d0 * d1, MPI_FLOAT, dest, tag,
+                MPI_COMM_WORLD);
+        MPI_Send(c_net->layers[i].b, d1, MPI_FLOAT, dest, tag,
+                MPI_COMM_WORLD);
+    }
+}
+
+void recv_network(Network* c_net, int src, int tag) {
+    MPI_Recv(&c_net->n_layers, 1, MPI_LONG, src, tag, MPI_COMM_WORLD,
+            MPI_STATUS_IGNORE);
+    c_net->layers = malloc(sizeof(Dense) * c_net->n_layers);
+    for (Py_ssize_t i = 0; i < c_net->n_layers; i++) {
+        MPI_Recv(&c_net->layers[i].shape, 2, MPI_LONG, src, tag,
+                MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        long d0 = c_net->layers[i].shape[0];
+        long d1 = c_net->layers[i].shape[1];
+        c_net->layers[i].ownmem = 1;
+        c_net->layers[i].W = malloc(sizeof(float) * d0 * d1);
+        c_net->layers[i].b = malloc(sizeof(float) * d1);
+        MPI_Recv(c_net->layers[i].W, d0 * d1, MPI_FLOAT, src, tag,
+                MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        MPI_Recv(c_net->layers[i].b, d1, MPI_FLOAT, src, tag,
+                MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    }
+}
+
+void free_network_contents(Network* c_net) {
+    for (Py_ssize_t i = 0; i < c_net->n_layers; i++) {
+        if (c_net->layers[i].ownmem) {
+            free(c_net->layers[i].b);
+            free(c_net->layers[i].W);
+        }
+    }
+    free(c_net->layers);
 }
 
 // Receives weight updates and trains, sends learned weights back to master
@@ -46,23 +98,43 @@ void slave_node() {
             PyArrayObject* batch = PyArray_SimpleNewFromData(
                     2, shape, NPY_FLOAT32, data);
             step_net(net, batch);
+            Py_DECREF(batch);
+            free(data);
         }
-        printf("%f\n", eval_net(net));
+        Network c_net;
+        cify_network(net, &c_net);
+        send_network(&c_net, P_MASTER, 0);
+        free_network_contents(&c_net);
     }
+    Py_DECREF(net);
 }
 
 // Stores most up-to-date model, sends it to slaves for training
 void master_node() {
+    PyObject* frank = create_network();
     for (int i = 0; i < COMM; i++) {
         char go;
         MPI_Send(&go, 1, MPI_CHAR, P_SLAVE, 0, MPI_COMM_WORLD);
+        Network c_net;
+        recv_network(&c_net, P_SLAVE, MPI_ANY_TAG);
+        be_like_cified(frank, &c_net);
+        free_network_contents(&c_net);
+        printf("Frank: %f\n", eval_net(frank));
     }
+    Py_DECREF(frank);
+}
+
+Role map_node() {
+    int node;
+    MPI_Comm_rank(MPI_COMM_WORLD, &node);
+    if (node == 0) return DATA;
+    if (node == 1) return SLAVE;
+    if (node == 2) return MASTER;
+    return SLAVE;
 }
 
 int main (int argc, const char **argv) {
-    int node;
     MPI_Init(NULL, NULL);
-    MPI_Comm_rank(MPI_COMM_WORLD, &node);
 
     // Cython Boilerplate
     PyImport_AppendInittab("library", PyInit_library);
@@ -72,17 +144,16 @@ int main (int argc, const char **argv) {
     PyObject* library_module = PyImport_ImportModule("library");
 
     // Actual Code
-    if (node == 0) {
-        data_reader();
-    }
-    else if (node == 1) {
-        slave_node();
-    }
-    else if (node == 2) {
-        master_node();
+    switch (map_node()) {
+        case DATA: data_reader();
+                   break;
+        case SLAVE: slave_node();
+                    break;
+        case MASTER: master_node();
+                     break;
     }
 
-    // Cython Finalizing Boilerplate
+    // Finalizing Boilerplate
     Py_DECREF(library_module);
     Py_Finalize();
     MPI_Finalize();
