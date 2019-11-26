@@ -92,14 +92,11 @@ void slave_node() {
             MPI_Recv(shape, 2, MPI_LONG, P_READER, MPI_ANY_TAG, MPI_COMM_WORLD,
                     MPI_STATUS_IGNORE);
             long size = shape[0] * shape[1];
-            float* data = malloc(shape[0] * shape[1] * sizeof(float));
-            MPI_Recv(data, size, MPI_FLOAT, P_READER, MPI_ANY_TAG,
+            float* batch = malloc(shape[0] * shape[1] * sizeof(float));
+            MPI_Recv(batch, size, MPI_FLOAT, P_READER, MPI_ANY_TAG,
                     MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            PyArrayObject* batch = PyArray_SimpleNewFromData(
-                    2, shape, NPY_FLOAT32, data);
-            step_net(net, batch);
-            Py_DECREF(batch);
-            free(data);
+            step_net(net, batch, BS);
+            free(batch);
         }
         Network c_net;
         cify_network(net, &c_net);
