@@ -1,9 +1,7 @@
 #include <Python.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <mpi.h>
-
-#define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
-#include <numpy/arrayobject.h>
 
 #include "library.h"
 
@@ -11,7 +9,7 @@
 #define P_SLAVE 1
 #define P_MASTER 2
 
-#define COMM 50
+#define COMM 500
 #define ITER 32
 #define BS 32
 
@@ -24,24 +22,20 @@ typedef enum{
 
 // Reads some data and converts it to 2D float array
 void data_reader() {
+    size_t batch_numel = (784 + 10) * BS;
+    float* batch = malloc(batch_numel * sizeof(float));
     while (1) {
-        PyArrayObject* batch = mnist_batch(BS);
-
-        long* shape = PyArray_SHAPE(batch);
-        MPI_Send(shape, 2, MPI_LONG, P_SLAVE, 0, MPI_COMM_WORLD);
-        MPI_Send(PyArray_DATA(batch), PyArray_SIZE(batch), MPI_FLOAT,
-                P_SLAVE, 0, MPI_COMM_WORLD);
-        Py_DECREF(batch);
+        mnist_batch(batch, BS);
+        MPI_Send(batch, batch_numel, MPI_FLOAT, P_SLAVE, 0, MPI_COMM_WORLD);
     }
 }
 
-void send_network(Network* c_net, int dest, int tag) {
-    Py_ssize_t n_layers = c_net->n_layers;
+void send_network(const Network* c_net, int dest, int tag) {
+    size_t n_layers = c_net->n_layers;
     MPI_Send(&n_layers, 1, MPI_LONG, dest, tag, MPI_COMM_WORLD);
-    for (Py_ssize_t i = 0; i < n_layers; i++) {
+    for (size_t i = 0; i < n_layers; i++) {
         long d0 = c_net->layers[i].shape[0];
         long d1 = c_net->layers[i].shape[1];
-
         MPI_Send(c_net->layers[i].shape, 2, MPI_LONG, dest, tag,
                 MPI_COMM_WORLD);
         MPI_Send(c_net->layers[i].W, d0 * d1, MPI_FLOAT, dest, tag,
@@ -52,10 +46,11 @@ void send_network(Network* c_net, int dest, int tag) {
 }
 
 void recv_network(Network* c_net, int src, int tag) {
+    // Creates a new network at c_net
     MPI_Recv(&c_net->n_layers, 1, MPI_LONG, src, tag, MPI_COMM_WORLD,
             MPI_STATUS_IGNORE);
     c_net->layers = malloc(sizeof(Dense) * c_net->n_layers);
-    for (Py_ssize_t i = 0; i < c_net->n_layers; i++) {
+    for (size_t i = 0; i < c_net->n_layers; i++) {
         MPI_Recv(&c_net->layers[i].shape, 2, MPI_LONG, src, tag,
                 MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         long d0 = c_net->layers[i].shape[0];
@@ -71,7 +66,7 @@ void recv_network(Network* c_net, int src, int tag) {
 }
 
 void free_network_contents(Network* c_net) {
-    for (Py_ssize_t i = 0; i < c_net->n_layers; i++) {
+    for (size_t i = 0; i < c_net->n_layers; i++) {
         if (c_net->layers[i].ownmem) {
             free(c_net->layers[i].b);
             free(c_net->layers[i].W);
@@ -82,43 +77,43 @@ void free_network_contents(Network* c_net) {
 
 // Receives weight updates and trains, sends learned weights back to master
 void slave_node() {
-    PyObject* net = create_network();
+    Network net;
+    create_c_network(&net);
+
+    size_t batch_numel = (784 + 10) * BS;
+    float* batch = malloc(batch_numel * sizeof(float));
+
     for (int i = 0; i < COMM; i++) {
         char go;
         MPI_Recv(&go, 1, MPI_CHAR, P_MASTER, MPI_ANY_TAG, MPI_COMM_WORLD,
                 MPI_STATUS_IGNORE);
         for (int k = 0; k < ITER; k++) {
-            long shape[2];
-            MPI_Recv(shape, 2, MPI_LONG, P_READER, MPI_ANY_TAG, MPI_COMM_WORLD,
-                    MPI_STATUS_IGNORE);
-            long size = shape[0] * shape[1];
-            float* batch = malloc(shape[0] * shape[1] * sizeof(float));
-            MPI_Recv(batch, size, MPI_FLOAT, P_READER, MPI_ANY_TAG,
+            MPI_Recv(batch, batch_numel, MPI_FLOAT, P_READER, MPI_ANY_TAG,
                     MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            step_net(net, batch, BS);
-            free(batch);
+            step_net(&net, batch, BS);
         }
-        Network c_net;
-        cify_network(net, &c_net);
-        send_network(&c_net, P_MASTER, 0);
-        free_network_contents(&c_net);
+        printf("Net: %f\n", eval_net(&net));
+        send_network(&net, P_MASTER, 0);
     }
-    Py_DECREF(net);
+
+    free(batch);
+    free_network_contents(&net);
 }
 
 // Stores most up-to-date model, sends it to slaves for training
 void master_node() {
-    PyObject* frank = create_network();
+    Network frank;
+    create_c_network(&frank);
     for (int i = 0; i < COMM; i++) {
         char go;
         MPI_Send(&go, 1, MPI_CHAR, P_SLAVE, 0, MPI_COMM_WORLD);
-        Network c_net;
-        recv_network(&c_net, P_SLAVE, MPI_ANY_TAG);
-        be_like_cified(frank, &c_net);
-        free_network_contents(&c_net);
-        printf("Frank: %f\n", eval_net(frank));
+        Network net;
+        recv_network(&net, P_SLAVE, MPI_ANY_TAG);
+        be_like(&frank, &net);
+        free_network_contents(&net);
+        printf("Frank: %f\n", eval_net(&frank));
     }
-    Py_DECREF(frank);
+    free_network_contents(&frank);
 }
 
 Role map_node() {
@@ -136,7 +131,7 @@ int main (int argc, const char **argv) {
     // Cython Boilerplate
     PyImport_AppendInittab("library", PyInit_library);
     Py_Initialize();
-    import_array();
+    // import_array();
     PyRun_SimpleString("import sys\nsys.path.insert(0,'')");
     PyObject* library_module = PyImport_ImportModule("library");
 
