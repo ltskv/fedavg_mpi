@@ -81,7 +81,7 @@ cdef public void create_c_network(Network* c_net):
         c_net.layers[i].ownmem = 1
 
 
-cdef public void frankenstein(Network* c_frank, Network* c_nets,
+cdef public void combo_c_net(Network* c_frank, Network* c_nets,
                               size_t num_nets):
     """ONE-LINER HOW BOUT THAT HUH."""
     combo_net(

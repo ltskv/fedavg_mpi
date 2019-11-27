@@ -4,7 +4,7 @@ project(fedavg_mpi)
 find_package(MPI REQUIRED)
 find_package(Python3 COMPONENTS Development NumPy)
 
-add_executable(${PROJECT_NAME} main.c library.c)
+add_executable(${PROJECT_NAME} main.c cythoned/library.c)
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${Python3_INCLUDE_DIRS})
 target_include_directories(${PROJECT_NAME} PRIVATE ${Python3_NumPy_INCLUDE_DIRS})
