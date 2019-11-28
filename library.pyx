@@ -27,7 +27,7 @@ ctypedef public struct Network:
     Dense* layers;
 
 
-cdef public char * greeting():
+cdef public char *greeting():
     return f'The value is {3**3**3}'.encode('utf-8')
 
 
@@ -52,6 +52,7 @@ cdef public void step_net(
     cdef size_t in_dim = net.geometry[0]
     cdef size_t out_dim = net.geometry[-1]
     batch = np.asarray(<float[:batch_size,:in_dim+out_dim]>batch_data)
+    # print(np.argmax(batch[:, in_dim:], axis=1), flush=True)
     net.step(batch[:, :in_dim], batch[:, in_dim:], opt)
 
 
@@ -60,9 +61,17 @@ cdef public float eval_net(Network* c_net):
     return net.evaluate(X_test, y_test, 'cls')
 
 
-cdef public void mnist_batch(float* batch, size_t bs):
-    idx = np.random.choice(len(X_train), bs, replace=False)
-    arr = np.concatenate([X_train[idx], y_train[idx]], axis=1)
+cdef public void mnist_batch(float* batch, size_t bs, int part, int total):
+    if total == 0:
+        X_pool, y_pool = X_train, y_train
+    else:
+        partsize = len(X_train) // total
+        X_pool = X_train[part*partsize:(part+1)*partsize]
+        y_pool = y_train[part*partsize:(part+1)*partsize]
+
+    idx = np.random.choice(len(X_pool), bs, replace=True)
+    arr = np.concatenate([X_pool[idx], y_pool[idx]], axis=1)
+    assert arr.flags['C_CONTIGUOUS']
     memcpy(batch, <float*>PyArray_DATA(arr), arr.size*sizeof(float))
 
 
@@ -76,6 +85,8 @@ cdef public void create_c_network(Network* c_net):
         c_net.layers[i].shape[1] = d1
         c_net.layers[i].W = <float*>malloc(sizeof(float) * d0 * d1)
         c_net.layers[i].b = <float*>malloc(sizeof(float) * d1)
+        assert l.W.flags['C_CONTIGUOUS']
+        assert l.b.flags['C_CONTIGUOUS']
         memcpy(c_net.layers[i].W, PyArray_DATA(l.W), sizeof(float) * d0 * d1)
         memcpy(c_net.layers[i].b, PyArray_DATA(l.b), sizeof(float) * d1)
         c_net.layers[i].ownmem = 1
@@ -101,7 +112,7 @@ cdef object wrap_c_network(Network* c_net):
     """Create a thin wrapper not owning the memory."""
     net = create_network(init=False)
     for i, l in enumerate(net.layers):
-        d0, d1 = l.W.shape
+        d0, d1 = c_net.layers[i].shape[0], c_net.layers[i].shape[1]
         l.W = np.asarray(<float[:d0,:d1]>c_net.layers[i].W)
         l.b = np.asarray(<float[:d1]>c_net.layers[i].b)
     return net
@@ -114,7 +125,7 @@ def inspect_array(a):
 
 
 def create_network(init=True):
-    return mn.Network((784, 10), mn.relu, mn.sigmoid, mn.bin_x_entropy,
+    return mn.Network((784, 30, 10), mn.relu, mn.sigmoid, mn.bin_x_entropy,
                       initialize=init)
 
 
