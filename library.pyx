@@ -1,30 +1,30 @@
 cimport numpy as np
 import numpy as np
-import mynet as mn
+
+from sys import stderr
 
 from libc.stdlib cimport malloc
 from libc.string cimport memcpy
 
+import nn
 
-ctr = []
-X_train, y_train, X_test, y_test = mn.load_mnist()
-opt = mn.SGDOptimizer(lr=0.1)
+
+X_train, y_train, X_test, y_test = nn.load_mnist()
 
 
 cdef extern from "numpy/arrayobject.h":
     void *PyArray_DATA(np.ndarray arr)
 
 
-ctypedef public struct Dense:
-    long[2] shape
-    int ownmem
+ctypedef public struct Weight:
+    size_t dims
+    long* shape
     float* W
-    float* b
 
 
-ctypedef public struct Network:
-    size_t n_layers;
-    Dense* layers;
+ctypedef public struct WeightList:
+    size_t n_weights;
+    Weight* weights;
 
 
 cdef public char *greeting():
@@ -35,33 +35,31 @@ cdef public void debug_print(object o):
     print(o)
 
 
-cdef public void predict(
-    Network* net,
-    float* X,
-    size_t batch_size
-):
-    pass
+cdef public object create_network():
+    return nn.create_mnist_network()
+
+
+cdef public void set_net_weights(object net, WeightList* wl):
+    net.set_weights(wrap_weight_list(wl))
 
 
 cdef public void step_net(
-    Network* c_net,
-    float* batch_data,
-    size_t batch_size
+    object net, float* X, float* y, size_t batch_size
 ):
-    net = wrap_c_network(c_net)
-    cdef size_t in_dim = net.geometry[0]
-    cdef size_t out_dim = net.geometry[-1]
-    batch = np.asarray(<float[:batch_size,:in_dim+out_dim]>batch_data)
-    # print(np.argmax(batch[:, in_dim:], axis=1), flush=True)
-    net.step(batch[:, :in_dim], batch[:, in_dim:], opt)
+    in_shape = (batch_size,) + net.layers[0].input_shape[1:]
+    out_shape = (batch_size,) + net.layers[-1].output_shape[1:]
+    X_train = np.asarray(<float[:np.prod(in_shape)]>X).reshape(in_shape)
+    y_train = np.asarray(<float[:np.prod(out_shape)]>y).reshape(out_shape)
+
+    net.train_on_batch(X_train, y_train)
 
 
-cdef public float eval_net(Network* c_net):
-    net = wrap_c_network(c_net)
-    return net.evaluate(X_test, y_test, 'cls')
+cdef public float eval_net(object net):
+    return net.evaluate(X_test, y_test, verbose=False)[1]
 
 
-cdef public void mnist_batch(float* batch, size_t bs, int part, int total):
+cdef public void mnist_batch(float* X, float* y, size_t bs,
+                             int part, int total):
     if total == 0:
         X_pool, y_pool = X_train, y_train
     else:
@@ -70,71 +68,66 @@ cdef public void mnist_batch(float* batch, size_t bs, int part, int total):
         y_pool = y_train[part*partsize:(part+1)*partsize]
 
     idx = np.random.choice(len(X_pool), bs, replace=True)
-    arr = np.concatenate([X_pool[idx], y_pool[idx]], axis=1)
-    assert arr.flags['C_CONTIGUOUS']
-    memcpy(batch, <float*>PyArray_DATA(arr), arr.size*sizeof(float))
+
+    X_r = X_pool[idx]
+    y_r = y_pool[idx]
+
+    assert X_r.flags['C_CONTIGUOUS']
+    assert y_r.flags['C_CONTIGUOUS']
+    memcpy(X, <float*>PyArray_DATA(X_r), X_r.size * sizeof(float))
+    memcpy(y, <float*>PyArray_DATA(y_r), y_r.size * sizeof(float))
 
 
-cdef public void create_c_network(Network* c_net):
-    net = create_network()
-    c_net.n_layers = len(net.layers)
-    c_net.layers = <Dense*>malloc(sizeof(Dense) * c_net.n_layers)
-    for i, l in enumerate(net.layers):
-        d0, d1 = l.W.shape
-        c_net.layers[i].shape[0] = d0
-        c_net.layers[i].shape[1] = d1
-        c_net.layers[i].W = <float*>malloc(sizeof(float) * d0 * d1)
-        c_net.layers[i].b = <float*>malloc(sizeof(float) * d1)
-        assert l.W.flags['C_CONTIGUOUS']
-        assert l.b.flags['C_CONTIGUOUS']
-        memcpy(c_net.layers[i].W, PyArray_DATA(l.W), sizeof(float) * d0 * d1)
-        memcpy(c_net.layers[i].b, PyArray_DATA(l.b), sizeof(float) * d1)
-        c_net.layers[i].ownmem = 1
+cdef public void init_weightlist_like(WeightList* wl, object net):
+    weights = net.get_weights()
+    wl.n_weights = len(weights)
+    wl.weights = <Weight*>malloc(sizeof(Weight) * wl.n_weights)
+    for i, w in enumerate(weights):
+        sh = np.asarray(w.shape, dtype=long)
+        wl.weights[i].dims = sh.size
+        wl.weights[i].shape = <long*>malloc(sizeof(long) * sh.size)
+        wl.weights[i].W = <float*>malloc(sizeof(float) * w.size)
+
+        assert sh.flags['C_CONTIGUOUS']
+        memcpy(wl.weights[i].shape, <long*>PyArray_DATA(sh),
+               sh.size * sizeof(long))
 
 
-cdef public void combo_c_net(Network* c_frank, Network* c_nets,
-                              size_t num_nets):
-    """ONE-LINER HOW BOUT THAT HUH."""
-    combo_net(
-        wrap_c_network(c_frank),
-        [wrap_c_network(&c_nets[i]) for i in range(num_nets)]
-    )
+cdef public void update_weightlist(WeightList* wl, object net):
+    weights = net.get_weights()
+    for i, w in enumerate(weights):
+        w = w.astype(np.float32)
+
+        assert w.flags['C_CONTIGUOUS']
+        memcpy(wl.weights[i].W, <float*>PyArray_DATA(w),
+               w.size * sizeof(float))
 
 
-cdef public void be_like(Network* c_dst, Network* c_src):
-    """Conveniently transform one C network into another."""
-    dst = wrap_c_network(c_dst)
-    src = wrap_c_network(c_src)
-    dst.be_like(src)
+cdef public void combo_weights(
+    WeightList* wl_frank, WeightList* wls, size_t num_weights
+):
+    """Not a one-liner anymore :/"""
+    alpha = 1. / num_weights
+    frank = wrap_weight_list(wl_frank)
+    for w in frank:
+        w[:] = 0
+    for i in range(num_weights):
+        for wf, ww in zip(frank, wrap_weight_list(&wls[i])):
+            wf += alpha * ww
 
 
-cdef object wrap_c_network(Network* c_net):
-    """Create a thin wrapper not owning the memory."""
-    net = create_network(init=False)
-    for i, l in enumerate(net.layers):
-        d0, d1 = c_net.layers[i].shape[0], c_net.layers[i].shape[1]
-        l.W = np.asarray(<float[:d0,:d1]>c_net.layers[i].W)
-        l.b = np.asarray(<float[:d1]>c_net.layers[i].b)
-    return net
+cdef list wrap_weight_list(WeightList* wl):
+    weights = []
+    for i in range(wl.n_weights):
+        w_shape = <long[:wl.weights[i].dims]>wl.weights[i].shape
+        w_numel = np.prod(w_shape)
+        weights.append(
+            np.asarray(<float[:w_numel]>wl.weights[i].W).reshape(w_shape)
+        )
+    return weights
 
 
 def inspect_array(a):
     print(a.flags, flush=True)
     print(a.dtype, flush=True)
     print(a.sum(), flush=True)
-
-
-def create_network(init=True):
-    return mn.Network((784, 30, 10), mn.relu, mn.sigmoid, mn.bin_x_entropy,
-                      initialize=init)
-
-
-def combo_net(net, nets, alpha=None):
-    tot = len(nets)
-    if alpha is None:
-        alpha = [1 / tot] * tot
-    for l in net.layers:
-        l.set_weights(np.zeros_like(t) for t in l.trainables())
-    for n, a in zip(nets, alpha):
-        for la, lb in zip(n.layers, net.layers):
-            lb.update(t * a for t in la.trainables())

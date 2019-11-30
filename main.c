@@ -9,11 +9,12 @@
 #define TAG_NETWK 2
 #define TAG_WEIGH 3
 #define TAG_READY 4
+#define TAG_BREAK 5
 
-#define COMM 500
-#define ITER 120
+#define COMM 100
+#define ITER 20
 #define BS 50
-#define FSPC 0.4
+#define FSPC 1
 
 #define in_range(i, x) (size_t (i) = 0; (i) < (x); (i)++)
 // I am honestly VERY sorry for this but power corrupts even the best of us
@@ -126,96 +127,60 @@ int rid(int id, Role what) {
     return id - z;
 }
 
+void free_weightlist(WeightList* wl) {
+    for in_range(i, wl->n_weights) {
+        free(wl->weights[i].shape);
+        free(wl->weights[i].W);
+    }
+    free(wl->weights);
+}
+
 void data_reader() {
     // Reads some data and converts it to a float array
-    printf("Start reader\n");
-    size_t batch_numel = (784 + 10) * BS;
-    float* batch = malloc(batch_numel * sizeof(float));
+    INFO_PRINTF("Starting reader %d\n", getpid());
+
+    size_t X_numel = 784 * BS;
+    size_t y_numel = 10 * BS;
+    float* X = malloc(X_numel * sizeof(float));
+    float* y = malloc(y_numel * sizeof(float));
     int s = 0;
 
-    while (1) {
+    while (s != -1) {
         MPI_Recv(&s, 1, MPI_INT, MPI_ANY_SOURCE, TAG_READY, MPI_COMM_WORLD,
                 MPI_STATUS_IGNORE);
-        mnist_batch(batch, BS, rid(s, SLAVE), number_of_slaves());
-        MPI_Send(batch, batch_numel, MPI_FLOAT, s, TAG_BATCH, MPI_COMM_WORLD);
-    }
-    free(batch);
-}
-
-void send_weights(const Network* c_net, int dest, int tag) {
-    // This assumes that the receiving end has a fully initialized network
-    // Of the same arch as `c_net`
-    for in_range(i, c_net->n_layers) {
-        long d0 = c_net->layers[i].shape[0];
-        long d1 = c_net->layers[i].shape[1];
-        MPI_Send(c_net->layers[i].W, d0 * d1, MPI_FLOAT, dest, tag,
-                MPI_COMM_WORLD);
-        MPI_Send(c_net->layers[i].b, d1, MPI_FLOAT, dest, tag,
-                MPI_COMM_WORLD);
-    }
-}
-
-void recv_weights(const Network* c_net, int src, int tag) {
-    // This assumes that the sender is going to send stuff that is going
-    // To fit exactly into the c_net
-    for in_range(i, c_net->n_layers) {
-        long d0 = c_net->layers[i].shape[0];
-        long d1 = c_net->layers[i].shape[1];
-        MPI_Recv(c_net->layers[i].W, d0 * d1, MPI_FLOAT, src, tag,
-                MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        MPI_Recv(c_net->layers[i].b, d1, MPI_FLOAT, src, tag,
-                MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-    }
-}
-
-void send_network(const Network* c_net, int dest, int tag) {
-    // Send a network to the expecting destination
-    // It's best to receive with `recv_network`
-    size_t n_layers = c_net->n_layers;
-    MPI_Send(&n_layers, 1, MPI_LONG, dest, tag, MPI_COMM_WORLD);
-    for in_range(i, c_net->n_layers) {
-        long d0 = c_net->layers[i].shape[0];
-        long d1 = c_net->layers[i].shape[1];
-        MPI_Send(c_net->layers[i].shape, 2, MPI_LONG, dest, tag,
-                MPI_COMM_WORLD);
-        MPI_Send(c_net->layers[i].W, d0 * d1, MPI_FLOAT, dest, tag,
-                MPI_COMM_WORLD);
-        MPI_Send(c_net->layers[i].b, d1, MPI_FLOAT, dest, tag,
-                MPI_COMM_WORLD);
-    }
-}
-
-void recv_network(Network* c_net, int src, int tag) {
-    // c_net HAS TO BE a fresh empty Network struct
-    MPI_Recv(&c_net->n_layers, 1, MPI_LONG, src, tag, MPI_COMM_WORLD,
-            MPI_STATUS_IGNORE);
-    c_net->layers = malloc(sizeof(Dense) * c_net->n_layers);
-    for in_range(i, c_net->n_layers) {
-        MPI_Recv(&c_net->layers[i].shape, 2, MPI_LONG, src, tag,
-                MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        long d0 = c_net->layers[i].shape[0];
-        long d1 = c_net->layers[i].shape[1];
-        c_net->layers[i].ownmem = 1;
-        c_net->layers[i].W = malloc(sizeof(float) * d0 * d1);
-        c_net->layers[i].b = malloc(sizeof(float) * d1);
-        MPI_Recv(c_net->layers[i].W, d0 * d1, MPI_FLOAT, src, tag,
-                MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        MPI_Recv(c_net->layers[i].b, d1, MPI_FLOAT, src, tag,
-                MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-    }
-}
-
-void free_network_contents(Network* c_net) {
-    // Cleans up the net
-    for in_range(i, c_net->n_layers) {
-        if (c_net->layers[i].ownmem) {
-            free(c_net->layers[i].b);
-            free(c_net->layers[i].W);
+        if (s != -1) {
+            mnist_batch(X, y, BS, rid(s, SLAVE), number_of_slaves());
+            MPI_Send(X, X_numel, MPI_FLOAT, s, TAG_BATCH, MPI_COMM_WORLD);
+            MPI_Send(y, y_numel, MPI_FLOAT, s, TAG_BATCH, MPI_COMM_WORLD);
         }
     }
-    if (c_net->layers != NULL) {
-        free(c_net->layers);
-        c_net->layers = NULL;  // So that you don't get any ideas
+    free(X);
+    free(y);
+}
+
+void send_weights(const WeightList* wl, int dest, int tag) {
+    // This assumes that the receiving end knows exactly
+    // the number of elements being sent and has memory ready
+    // for it.
+    for in_range(i, wl->n_weights) {
+        long n_el = 1;
+        for in_range(k, wl->weights[i].dims) {
+            n_el *= wl->weights[i].shape[k];
+        }
+        MPI_Send(wl->weights[i].W, n_el, MPI_FLOAT, dest, tag, MPI_COMM_WORLD);
+    }
+}
+
+void recv_weights(WeightList* wl, int src, int tag) {
+    // This assumes that the sender sends stuff that is going
+    // to fit into memory in correct order too.
+    for in_range(i, wl->n_weights) {
+        long n_el = 1;
+        for in_range(d, wl->weights[i].dims) {
+            n_el *= wl->weights[i].shape[d];
+        }
+        MPI_Recv(wl->weights[i].W, n_el, MPI_FLOAT, src, tag, MPI_COMM_WORLD,
+                MPI_STATUS_IGNORE);
     }
 }
 
@@ -225,33 +190,38 @@ void slave_node() {
     // 2. Request batch from reader ([ ] has to choose a reader)
     // 3. Do computations
     // 4. Send weights back to master
-    printf("Start slave\n");
+    INFO_PRINTF("Starting slave %d\n", getpid());
 
     int me;
     MPI_Comm_rank(MPI_COMM_WORLD, &me);
 
-    size_t batch_numel = (784 + 10) * BS;
-    float* batch = malloc(batch_numel * sizeof(float));
-    Network net;
-    create_c_network(&net);
+    size_t X_numel = 784 * BS;
+    size_t y_numel = 10 * BS;
+    float* X = malloc(X_numel * sizeof(float));
+    float* y = malloc(y_numel * sizeof(float));
+
+    PyObject* net = create_network();
+    WeightList wl;
+    init_weightlist_like(&wl, net);
 
     for in_range(i, COMM) {
-        // INFO_PRINTF("%d announcing itself\n", my_id());
         MPI_Send(&me, 1, MPI_INT, master_id(0), TAG_READY, MPI_COMM_WORLD);
-        // INFO_PRINTF("%d waitng for weights from %d\n", my_id(), master_id(0));
-        recv_weights(&net, master_id(0), TAG_WEIGH);
-        // INFO_PRINTF("%d an answer!\n", my_id());
+        recv_weights(&wl, master_id(0), TAG_WEIGH);
+        set_net_weights(net, &wl);
         for in_range(k, ITER) {
             MPI_Send(&me, 1, MPI_INT, reader_id(0), TAG_READY, MPI_COMM_WORLD);
-            MPI_Recv(batch, batch_numel, MPI_FLOAT, reader_id(0), TAG_BATCH,
+            MPI_Recv(X, X_numel, MPI_FLOAT, reader_id(0), TAG_BATCH,
                     MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            step_net(&net, batch, BS);
+            MPI_Recv(y, y_numel, MPI_FLOAT, reader_id(0), TAG_BATCH,
+                    MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            step_net(net, X, y, BS);
         }
-        printf("%d net: %f\n", my_id(), eval_net(&net));
-        send_weights(&net, master_id(0), TAG_WEIGH);
+        printf("%d net: %f\n", my_id(), eval_net(net));
+        update_weightlist(&wl, net);
+        send_weights(&wl, master_id(0), TAG_WEIGH);
     }
-    free_network_contents(&net);
-    free(batch);
+    Py_DECREF(net);
+    free_weightlist(&wl);
 }
 
 void master_node() {
@@ -261,34 +231,47 @@ void master_node() {
     // 2. Receive weights back (synchronous)
     // 3. Average the weights
 
-    printf("Start master\n");
 
-    Network frank;
-    create_c_network(&frank);
+    PyObject* frank = create_network();
+    WeightList wl;
+    init_weightlist_like(&wl, frank);
+    update_weightlist(&wl, frank);
 
     int spr = number_of_slaves() * FSPC;  // Slaves per round
     int s;
 
-    Network *nets = malloc(sizeof(Network) * spr);
+    WeightList *wls = malloc(sizeof(WeightList) * spr);
     int *handles = malloc(sizeof(int) * spr);
 
-    for in_range(i, spr) create_c_network(nets + i);
+    for in_range(i, spr) {
+        init_weightlist_like(wls + i, frank);
+    }
     for in_range(i, COMM) {
 
         for in_range(k, spr) {
             MPI_Recv(&s, 1, MPI_INT, MPI_ANY_SOURCE, TAG_READY, MPI_COMM_WORLD,
                     MPI_STATUS_IGNORE);
-            send_weights(&frank, s, TAG_WEIGH);
+            send_weights(&wl, s, TAG_WEIGH);
             handles[k] = s;
         }
         for in_range(k, spr) {
-            recv_weights(nets + k, handles[k], TAG_WEIGH);
+            recv_weights(wls + k, handles[k], TAG_WEIGH);
         }
-        combo_c_net(&frank, nets, spr);
-        printf("Frank: %f\n", eval_net(&frank));
+        combo_weights(&wl, wls, spr);
+        set_net_weights(frank, &wl);
+        printf("Frank: %f\n", eval_net(frank));
     }
-    free_network_contents(&frank);
-    free(nets);
+    Py_DECREF(frank);
+    free_weightlist(&wl);
+    for in_range(i, spr) free_weightlist(wls + i);
+    free(wls);
+    if (rid(my_id(), MASTER) == 0) {
+        for in_range(r, number_of_readers()) {
+            int stop = -1;
+            MPI_Send(&stop, 1, MPI_INT, reader_id(r), TAG_READY,
+                    MPI_COMM_WORLD);
+        }
+    }
 }
 
 int main (int argc, const char **argv) {

@@ -5,3 +5,4 @@ library.h
 run
 compile_commands.json
 build/
+__pycache__/
