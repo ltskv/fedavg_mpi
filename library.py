@@ -34,15 +34,17 @@ def create_mnist_network():
     return model
 
 
-def create_cbow_network(win, vocsize, embed):
+def create_cbow_network(win, embed):
     ctxt = tf.keras.layers.Input(shape=[win])
-    ed = tf.keras.layers.Embedding(vocsize, embed, input_length=win)(ctxt)
-    avgd = tf.keras.layers.Lambda(lambda x: tf.reduce_mean(x, axis=1))(ed)
-    mod = tf.keras.Model(inputs=ctxt, outputs=avgd)
+    ed = tf.keras.layers.Embedding(len(vocab), embed, input_length=win)(ctxt)
+    cbow = tf.keras.layers.Lambda(lambda x: tf.reduce_mean(x, axis=1))(ed)
+    blowup = tf.keras.layers.Dense(len(vocab), activation='softmax')(cbow)
+    mod = tf.keras.Model(inputs=ctxt, outputs=blowup)
     mod.compile(
         optimizer='sgd',
         loss='categorical_crossentropy',
     )
+    print(mod, flush=True)
     return mod
 
 

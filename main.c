@@ -15,8 +15,8 @@
 #define TAG_SWORD 7
 #define TAG_IWORD 8
 
-#define COMM 100
-#define ITER 20
+#define COMM 1
+#define ITER 1
 #define BS 10
 #define EMB 20
 #define WIN 2
@@ -67,7 +67,8 @@ size_t number_of(Role what) {
                 - number_of(BATCHER)
                 - number_of(MASTER);
         case MASTER:
-            return 1;
+            return 0;
+#warning "set to real number of masters!"
     }
 }
 
@@ -167,7 +168,7 @@ void filterer() {
 void batcher() {
     // Reads some data and converts it to a float array
     // INFO_PRINTF("Starting batcher %d\n", getpid());
-    // int s = 0;
+    int s = 0;
     const size_t n_words = BS + WIN + WIN;
     float* f_widx = malloc(n_words * sizeof(float));
     long l_wid = 0;
@@ -187,11 +188,11 @@ void batcher() {
             // INFO_PRINTF("%5.0f ", f_widx[i]);
         // }
         // INFO_PRINTLN("");
-        // MPI_Recv(&s, 1, MPI_INT, MPI_ANY_SOURCE, TAG_READY, MPI_COMM_WORLD,
-                // MPI_STATUS_IGNORE);
-        // if (s != -1) {
-            // MPI_Send(f_widx, n_words, MPI_FLOAT, s, TAG_BATCH, MPI_COMM_WORLD);
-        // }
+        MPI_Recv(&s, 1, MPI_INT, MPI_ANY_SOURCE, TAG_READY, MPI_COMM_WORLD,
+                MPI_STATUS_IGNORE);
+        if (s != -1) {
+            MPI_Send(f_widx, n_words, MPI_FLOAT, s, TAG_BATCH, MPI_COMM_WORLD);
+        }
     }
     free(f_widx);
 }
@@ -253,10 +254,10 @@ void slave_node() {
     float* f_widx = malloc(n_words * sizeof(float));
 
     for in_range(i, COMM) {
-        MPI_Send(&me, 1, MPI_INT, mpi_id_from_role_id(MASTER, 0),
-                TAG_READY, MPI_COMM_WORLD);
-        recv_weights(&wl, mpi_id_from_role_id(MASTER, 0), TAG_WEIGH);
-        set_net_weights(net, &wl);
+        // MPI_Send(&me, 1, MPI_INT, mpi_id_from_role_id(MASTER, 0),
+                // TAG_READY, MPI_COMM_WORLD);
+        // recv_weights(&wl, mpi_id_from_role_id(MASTER, 0), TAG_WEIGH);
+        // set_net_weights(net, &wl);
         for in_range(k, ITER) {
             MPI_Send(&me, 1, MPI_INT, mpi_id_from_role_id(BATCHER, 0),
                     TAG_READY, MPI_COMM_WORLD);
@@ -267,9 +268,9 @@ void slave_node() {
             c_onehot(y, f_widx + WIN, BS);
             step_net(net, X, y, BS);
         }
-        printf("%d net: %f\n", my_mpi_id(), eval_net(net));
+        // printf("%d net: %f\n", my_mpi_id(), eval_net(net));
         update_weightlist(&wl, net);
-        send_weights(&wl, mpi_id_from_role_id(MASTER, 0), TAG_WEIGH);
+        // send_weights(&wl, mpi_id_from_role_id(MASTER, 0), TAG_WEIGH);
     }
     Py_DECREF(net);
     free_weightlist(&wl);
@@ -344,6 +345,9 @@ int main (int argc, const char **argv) {
             break;
         case BATCHER:
             batcher();
+            break;
+        case SLAVE:
+            slave_node();
             break;
         default:
             INFO_PRINTLN("DYING HORRIBLY!");

@@ -75,9 +75,10 @@ cdef public void f_idx_list_to_print(float* f_idxs, size_t num):
 
 
 cdef public void c_onehot(float* y, float* idxs, size_t n_idx):
-    oh = nn.onehot(np.asarray(<float[:n_idx]>idxs))
+    oh = nn.onehot(np.asarray(<float[:n_idx]>idxs), nc=len(nn.vocab))
     ensure_contiguous(oh)
     memcpy(y, PyArray_DATA(oh), oh.size * sizeof(float))
+    # eprint(np.argmax(oh, axis=1))
 
 
 cdef public void c_slices(float* X, float* idxs, size_t bs, size_t win):
@@ -85,7 +86,8 @@ cdef public void c_slices(float* X, float* idxs, size_t bs, size_t win):
     idxs_np = np.asarray(<float[:bs + 2*win]>idxs)
     for r in range(bs):
         X_np[r, :win] = idxs_np[r:r+win]
-        X_np[r, win+1:] = idxs_np[r+win+1:r+2*win+1]
+        X_np[r, win:] = idxs_np[r+win+1:r+win+1+win]
+    # eprint(X_np)
 
 
 cdef public void debug_print(object o):
@@ -93,7 +95,7 @@ cdef public void debug_print(object o):
 
 
 cdef public object create_network(int win, int embed):
-    return nn.create_cbow_network(win, len(nn.vocab), embed)
+    return nn.create_cbow_network(win, embed)
 
 
 cdef public void set_net_weights(object net, WeightList* wl):
@@ -214,7 +216,7 @@ def inspect_array(a):
 
 
 def ensure_contiguous(a):
-    assert a.flats['C_CONTIGUOUS']
+    assert a.flags['C_CONTIGUOUS']
 
 
 def eprint(*args, **kwargs):
