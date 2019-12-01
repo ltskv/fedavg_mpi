@@ -29,8 +29,6 @@ def create_test_dataset(win):
         ds = np.array([vocab[w] for w in word_tokenize(f.read())
                        if w in vocab])
     idx = np.random.choice(np.arange(win, len(ds) - win), S)
-    oh_store = np.zeros((S, len(vocab)), dtype=np.float32)
-    onehot(oh_store, ds[idx])
     return (
         # X
         np.stack([
@@ -39,7 +37,7 @@ def create_test_dataset(win):
         ], axis=0).astype(np.float32),
 
         #y
-        oh_store
+        onehot(ds[idx], nc=len(vocab))
     )
 
 def create_mnist_network():
@@ -67,7 +65,7 @@ def create_cbow_network(win, embed):
 
 def token_generator(filename):
     with open(filename) as f:
-        for i, l in enumerate(f.readlines(1000)):
+        for i, l in enumerate(f.readlines()):
             if not l.isspace():
                 tok = word_tokenize(l)
                 if tok:

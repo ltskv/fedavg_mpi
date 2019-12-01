@@ -15,9 +15,9 @@
 #define TAG_SWORD 7
 #define TAG_IWORD 8
 
-#define COMM 1
-#define ITER 1000
-#define BS 10
+#define COMM 10
+#define ITER 100
+#define BS 32
 #define EMB 20
 #define WIN 2
 #define FSPC 1
@@ -36,7 +36,7 @@ typedef enum{
     TOKENIZER,
     FILTERER,
     BATCHER,
-    SLAVE,
+    LEARNER,
     MASTER
 } Role;
 
@@ -60,7 +60,7 @@ size_t number_of(Role what) {
             return 1;
         case BATCHER:
             return 1;
-        case SLAVE:
+        case LEARNER:
             return world_size()
                 - number_of(TOKENIZER)
                 - number_of(FILTERER)
@@ -189,11 +189,10 @@ void batcher() {
             }
         }
         if (l_wid[0] == -1) break;
-        cbow_batch(batch, BS, WIN);
 
-        // MPI_Recv(&s, 1, MPI_INT, MPI_ANY_SOURCE, TAG_READY, MPI_COMM_WORLD,
-                // MPI_STATUS_IGNORE);
-        // MPI_Send(batch, bufsize, MPI_FLOAT, s, TAG_BATCH, MPI_COMM_WORLD);
+        MPI_Recv(&s, 1, MPI_INT, MPI_ANY_SOURCE, TAG_READY, MPI_COMM_WORLD,
+                MPI_STATUS_IGNORE);
+        MPI_Send(batch, bufsize, MPI_FLOAT, s, TAG_BATCH, MPI_COMM_WORLD);
     }
     free(l_wid);
     free(batch);
@@ -233,7 +232,7 @@ void recv_weights(WeightList* wl, int src, int tag) {
     }
 }
 
-void slave_node() {
+void learner() {
     // 0. Announce readiness?
     // 1. Receive weights from master ([ ] has to know its master)
     // 2. Request batch from reader ([ ] has to choose a reader)
@@ -246,35 +245,22 @@ void slave_node() {
     create_test_dataset(WIN);
     WeightList wl;
     init_weightlist_like(&wl, net);
+    size_t entry_size = (2*WIN + 1);
+    size_t bufsize = BS * entry_size;
 
-    size_t vocab = out_size(net);
-    size_t n_words = (BS + WIN + WIN);
-    size_t X_numel = BS * (WIN + WIN);
-    size_t y_numel = BS * vocab;
-
-    float* X = malloc(X_numel * sizeof(float));
-    float* y = malloc(y_numel * sizeof(float));
-    float* f_widx = malloc(n_words * sizeof(float));
+    float* batch = malloc(bufsize * sizeof(float));
 
     for in_range(i, COMM) {
-        // MPI_Send(&me, 1, MPI_INT, mpi_id_from_role_id(MASTER, 0),
-                // TAG_READY, MPI_COMM_WORLD);
-        // recv_weights(&wl, mpi_id_from_role_id(MASTER, 0), TAG_WEIGH);
-        // set_net_weights(net, &wl);
         for in_range(k, ITER) {
             MPI_Send(&me, 1, MPI_INT, mpi_id_from_role_id(BATCHER, 0),
                     TAG_READY, MPI_COMM_WORLD);
-            MPI_Recv(f_widx, n_words, MPI_FLOAT,
+            MPI_Recv(batch, bufsize, MPI_FLOAT,
                     mpi_id_from_role_id(BATCHER, 0), TAG_BATCH, MPI_COMM_WORLD,
                     MPI_STATUS_IGNORE);
-            // cbow_batch(X, y, f_widx, BS, WIN);
-            step_net(net, X, BS);
-#warning "fix this"
-            INFO_PRINTLN(".");
+            step_net(net, batch, BS);
         }
         printf("%d net: %f\n", my_mpi_id(), eval_net(net));
         update_weightlist(&wl, net);
-        // send_weights(&wl, mpi_id_from_role_id(MASTER, 0), TAG_WEIGH);
     }
     Py_DECREF(net);
     free_weightlist(&wl);
@@ -293,7 +279,7 @@ void master_node() {
     init_weightlist_like(&wl, frank);
     update_weightlist(&wl, frank);
 
-    int spr = number_of(SLAVE) * FSPC;  // Slaves per round
+    int spr = number_of(LEARNER) * FSPC;  // Slaves per round
     int s;
 
     WeightList *wls = malloc(sizeof(WeightList) * spr);
@@ -350,9 +336,9 @@ int main (int argc, const char **argv) {
         case BATCHER:
             batcher();
             break;
-        // case SLAVE:
-            // slave_node();
-            // break;
+        case LEARNER:
+            learner();
+            break;
         default:
             INFO_PRINTLN("DYING HORRIBLY!");
         // case SLAVE: slave_node(); break;
