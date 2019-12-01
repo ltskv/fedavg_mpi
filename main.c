@@ -17,7 +17,7 @@
 
 #define COMM 100
 #define ITER 20
-#define BS 50
+#define BS 20
 #define EMB 20
 #define WIN 2
 #define FSPC 1
@@ -156,41 +156,54 @@ void tokenizer(const char* source) {
 
 void filterer() {
     Word w = {0, NULL};
+    long idx;
     while (1) {
         recv_word(&w, role_id_from_mpi_id(TOKENIZER, 0));
         if (!strlen(w.data)) {
             break;
         }
-        INFO_PRINTF("%s: ", w.data);
-        long idx = vocab_idx_of(&w);
-        INFO_PRINTF("%ld\n", idx);
-        // if (idx != -1) {
-            // MPI_Send(&idx, 1, MPI_LONG, mpi_id_from_role_id(BATCHER, 0),
-                    // TAG_IWORD, MPI_COMM_WORLD);
-        // }
+        // INFO_PRINTF("%s: ", w.data);
+        idx = vocab_idx_of(&w);
+        // INFO_PRINTF("%ld\n", idx);
+        if (idx != -1) {
+            MPI_Send(&idx, 1, MPI_LONG, mpi_id_from_role_id(BATCHER, 0),
+                    TAG_IWORD, MPI_COMM_WORLD);
+        }
     }
+    idx = -1;
+    MPI_Send(&idx, 1, MPI_LONG, mpi_id_from_role_id(BATCHER, 0),
+            TAG_IWORD, MPI_COMM_WORLD);
     free_word(&w);
 }
 
 void batcher() {
     // Reads some data and converts it to a float array
-    INFO_PRINTF("Starting batcher %d\n", getpid());
-    int s = 0;
+    // INFO_PRINTF("Starting batcher %d\n", getpid());
+    // int s = 0;
     const size_t n_words = BS + WIN + WIN;
     float* f_widx = malloc(n_words * sizeof(float));
+    long l_wid = 0;
 
-    while (s != -1) {
+    while (l_wid != -1) {
+
         for in_range(i, n_words) {
-            long l_wid;
-            MPI_Recv(&l_wid, 1, MPI_LONG, role_id_from_mpi_id(FILTERER, 0),
+            MPI_Recv(&l_wid, 1, MPI_LONG, mpi_id_from_role_id(FILTERER, 0),
                     TAG_IWORD, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            if (l_wid == -1) break;
             f_widx[i] = (float)l_wid;
         }
-        MPI_Recv(&s, 1, MPI_INT, MPI_ANY_SOURCE, TAG_READY, MPI_COMM_WORLD,
-                MPI_STATUS_IGNORE);
-        if (s != -1) {
-            MPI_Send(f_widx, n_words, MPI_FLOAT, s, TAG_BATCH, MPI_COMM_WORLD);
+        if (l_wid == -1) break;
+
+        for in_range(i, n_words) {
+            INFO_PRINTF("%5.0f ", f_widx[i]);
         }
+
+        INFO_PRINTLN("");
+        // MPI_Recv(&s, 1, MPI_INT, MPI_ANY_SOURCE, TAG_READY, MPI_COMM_WORLD,
+                // MPI_STATUS_IGNORE);
+        // if (s != -1) {
+            // MPI_Send(f_widx, n_words, MPI_FLOAT, s, TAG_BATCH, MPI_COMM_WORLD);
+        // }
     }
     free(f_widx);
 }
@@ -332,6 +345,9 @@ int main (int argc, const char **argv) {
             break;
         case FILTERER:
             filterer();
+            break;
+        case BATCHER:
+            batcher();
             break;
         default:
             INFO_PRINTLN("DYING HORRIBLY!");

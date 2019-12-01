@@ -58,9 +58,9 @@ cdef public int get_tokens(WordList* wl, const char *filename):
 
 cdef public long vocab_idx_of(Word* w):
     word = w.data.decode('utf-8')
-    if word.lower() in nn.vocab:
-        return nn.vocab.index(word.lower())
-    else:
+    try:
+        return nn.vocab.index(word)
+    except ValueError:
         return -1
 
 

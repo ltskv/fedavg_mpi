@@ -9,7 +9,7 @@ from mynet import load_mnist, onehot
 
 
 def word_tokenize(s: str):
-    l = ''.join(c if c.isalpha() else ' ' for c in s)
+    l = ''.join(c.lower() if c.isalpha() else ' ' for c in s)
     return l.split()
 
 
@@ -47,7 +47,7 @@ def create_cbow_network(win, vocab, embed):
 
 def token_generator(filename):
     with open(filename) as f:
-        for l in f.readlines(500):
+        for l in f.readlines():
             if not l.isspace():
                 tok = word_tokenize(l)
                 if tok:
