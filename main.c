@@ -15,9 +15,9 @@
 #define TAG_SWORD 7
 #define TAG_IWORD 8
 
-#define COMM 1
-#define ITER 1
-#define BS 10
+#define COMM 5
+#define ITER 200
+#define BS 32
 #define EMB 20
 #define WIN 2
 #define FSPC 1
@@ -241,6 +241,7 @@ void slave_node() {
     int me = my_mpi_id();
 
     PyObject* net = create_network(WIN, EMB);
+    create_test_dataset(WIN);
     WeightList wl;
     init_weightlist_like(&wl, net);
 
@@ -264,11 +265,11 @@ void slave_node() {
             MPI_Recv(f_widx, n_words, MPI_FLOAT,
                     mpi_id_from_role_id(BATCHER, 0), TAG_BATCH, MPI_COMM_WORLD,
                     MPI_STATUS_IGNORE);
-            c_slices(X, f_widx, BS, WIN);
-            c_onehot(y, f_widx + WIN, BS);
+            cbow_batch(X, y, f_widx, BS, WIN);
             step_net(net, X, y, BS);
+            INFO_PRINTLN(".");
         }
-        // printf("%d net: %f\n", my_mpi_id(), eval_net(net));
+        printf("%d net: %f\n", my_mpi_id(), eval_net(net));
         update_weightlist(&wl, net);
         // send_weights(&wl, mpi_id_from_role_id(MASTER, 0), TAG_WEIGH);
     }
