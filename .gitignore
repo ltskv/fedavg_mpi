@@ -1,8 +1,8 @@
 .*.sw?
 DS_Store
-library.c
-library.h
 run
 compile_commands.json
+*.txt
 build/
+cythoned/
 __pycache__/

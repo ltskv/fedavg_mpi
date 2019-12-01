@@ -3,13 +3,14 @@ import numpy as np
 
 from sys import stderr
 
-from libc.stdlib cimport malloc
+from libc.stdlib cimport malloc, realloc
 from libc.string cimport memcpy
 
-import nn
+import library as nn
 
 
 X_train, y_train, X_test, y_test = nn.load_mnist()
+tokenizers = {}
 
 
 cdef extern from "numpy/arrayobject.h":
@@ -27,16 +28,62 @@ ctypedef public struct WeightList:
     Weight* weights;
 
 
+ctypedef public struct Word:
+    size_t mem
+    char* data
+
+
+ctypedef public struct WordList:
+    size_t mem
+    size_t n_words
+    Word* words
+
+
 cdef public char *greeting():
     return f'The value is {3**3**3}'.encode('utf-8')
 
 
+cdef public int get_tokens(WordList* wl, const char *filename):
+    fnu = filename.decode('utf-8')
+    if fnu not in tokenizers:
+        tokenizers[fnu] = nn.token_generator(fnu)
+    g = tokenizers[fnu]
+    try:
+        words = next(g)
+    except StopIteration:
+        return 0
+    words_into_wordlist(wl, words)
+    return 1
+
+
+cdef public long vocab_idx_of(Word* w):
+    word = w.data.decode('utf-8')
+    if word.lower() in nn.vocab:
+        return nn.vocab.index(word.lower())
+    else:
+        return -1
+
+
+cdef public void c_onehot(float* y, float* idxs, size_t n_idx):
+    oh = nn.onehot(np.asarray(<float[:n_idx]>idxs))
+    ensure_contiguous(oh)
+    memcpy(y, PyArray_DATA(oh), oh.size * sizeof(float))
+
+
+cdef public void c_slices(float* X, float* idxs, size_t bs, size_t win):
+    X_np = np.asarray(<float[:bs,:2*win]>X)
+    idxs_np = np.asarray(<float[:bs + 2*win]>idxs)
+    for r in range(bs):
+        X_np[r, :win] = idxs_np[r:r+win]
+        X_np[r, win+1:] = idxs_np[r+win+1:r+2*win+1]
+
+
 cdef public void debug_print(object o):
-    print(o)
+    eprint(o)
 
 
-cdef public object create_network():
-    return nn.create_mnist_network()
+cdef public object create_network(int win, int embed):
+    return nn.create_cbow_network(win, len(nn.vocab), embed)
 
 
 cdef public void set_net_weights(object net, WeightList* wl):
@@ -46,16 +93,20 @@ cdef public void set_net_weights(object net, WeightList* wl):
 cdef public void step_net(
     object net, float* X, float* y, size_t batch_size
 ):
-    in_shape = (batch_size,) + net.layers[0].input_shape[1:]
-    out_shape = (batch_size,) + net.layers[-1].output_shape[1:]
+    in_shape = (batch_size,) + net.input_shape[1:]
+    out_shape = (batch_size,) + net.output_shape[1:]
     X_train = np.asarray(<float[:np.prod(in_shape)]>X).reshape(in_shape)
-    y_train = np.asarray(<float[:np.prod(out_shape)]>y).reshape(out_shape)
+    y_train = np.asarray(<float[:np.prod(out_shape)]>y).reshape(out_shape),
 
     net.train_on_batch(X_train, y_train)
 
 
+cdef public size_t out_size(object net):
+    return np.prod(net.output_shape[1:])
+
+
 cdef public float eval_net(object net):
-    return net.evaluate(X_test, y_test, verbose=False)[1]
+    return net.evaluate(X_test, y_test, verbose=False)
 
 
 cdef public void mnist_batch(float* X, float* y, size_t bs,
@@ -74,8 +125,8 @@ cdef public void mnist_batch(float* X, float* y, size_t bs,
 
     assert X_r.flags['C_CONTIGUOUS']
     assert y_r.flags['C_CONTIGUOUS']
-    memcpy(X, <float*>PyArray_DATA(X_r), X_r.size * sizeof(float))
-    memcpy(y, <float*>PyArray_DATA(y_r), y_r.size * sizeof(float))
+    memcpy(X, PyArray_DATA(X_r), X_r.size * sizeof(float))
+    memcpy(y, PyArray_DATA(y_r), y_r.size * sizeof(float))
 
 
 cdef public void init_weightlist_like(WeightList* wl, object net):
@@ -89,8 +140,7 @@ cdef public void init_weightlist_like(WeightList* wl, object net):
         wl.weights[i].W = <float*>malloc(sizeof(float) * w.size)
 
         assert sh.flags['C_CONTIGUOUS']
-        memcpy(wl.weights[i].shape, <long*>PyArray_DATA(sh),
-               sh.size * sizeof(long))
+        memcpy(wl.weights[i].shape, PyArray_DATA(sh), sh.size * sizeof(long))
 
 
 cdef public void update_weightlist(WeightList* wl, object net):
@@ -99,8 +149,7 @@ cdef public void update_weightlist(WeightList* wl, object net):
         w = w.astype(np.float32)
 
         assert w.flags['C_CONTIGUOUS']
-        memcpy(wl.weights[i].W, <float*>PyArray_DATA(w),
-               w.size * sizeof(float))
+        memcpy(wl.weights[i].W, PyArray_DATA(w), w.size * sizeof(float))
 
 
 cdef public void combo_weights(
@@ -127,7 +176,36 @@ cdef list wrap_weight_list(WeightList* wl):
     return weights
 
 
+cdef void words_into_wordlist(WordList* wl, list words):
+    if wl.mem < len(words):
+        old = wl.mem
+        wl.mem = len(words)
+        wl.words = <Word*>realloc(wl.words, wl.mem * sizeof(Word))
+        for i in range(old, wl.mem):
+            wl.words[i].mem = 0
+            wl.words[i].data = <char*>0
+
+    wl.n_words = len(words)
+    for i, w in enumerate(words):
+        wenc = w.encode('utf-8')
+        if wl.words[i].mem < len(wenc) + 1:
+            wl.words[i].mem = len(wenc) + 1
+            wl.words[i].data = <char*>realloc(
+                wl.words[i].data, wl.words[i].mem * sizeof(char)
+            )
+        memcpy(wl.words[i].data, <char*>wenc, len(wenc) * sizeof(char))
+        wl.words[i].data[len(wenc)] = 0
+
+
 def inspect_array(a):
     print(a.flags, flush=True)
     print(a.dtype, flush=True)
     print(a.sum(), flush=True)
+
+
+def ensure_contiguous(a):
+    assert a.flats['C_CONTIGUOUS']
+
+
+def eprint(*args, **kwargs):
+    return print(*args, flush=True, **kwargs)

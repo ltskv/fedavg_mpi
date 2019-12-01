@@ -12,7 +12,7 @@ numpy_header = include_directories(run_command(
 ).stdout().strip())
 
 executable(
-  'fedavg_mpi', 'main.c', 'cythoned/library.c',
+  'fedavg_mpi', 'main.c', 'cythoned/bridge.c',
   dependencies: [mpi, python],
   include_directories: numpy_header,
   link_args: '-Wl,-w'
