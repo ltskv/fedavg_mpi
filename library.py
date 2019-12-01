@@ -15,12 +15,13 @@ def word_tokenize(s: str):
 
 HERE = os.path.abspath(os.path.dirname(__file__))
 CORPUS = os.path.join(HERE, 'melville-moby_dick.txt')
-# sw = set(stopwords.words('english'))
-sw = ['the']
-vocab = list(set(
-    w.lower() for w in word_tokenize(open(CORPUS).read())
-    if w.isalpha() and not w.lower() in sw
-))
+VOCAB = os.path.join(HERE, 'vocab.txt')
+
+vocab = {
+    w: i for i, w in enumerate(open(VOCAB).read().splitlines(keepends=False))
+}
+# inv_vocab = [vocab[i] for i in range(len(vocab))]
+inv_vocab = sorted(vocab, key=vocab.get)
 
 
 def create_mnist_network():
@@ -33,9 +34,9 @@ def create_mnist_network():
     return model
 
 
-def create_cbow_network(win, vocab, embed):
+def create_cbow_network(win, vocsize, embed):
     ctxt = tf.keras.layers.Input(shape=[win])
-    ed = tf.keras.layers.Embedding(vocab, embed, input_length=win)(ctxt)
+    ed = tf.keras.layers.Embedding(vocsize, embed, input_length=win)(ctxt)
     avgd = tf.keras.layers.Lambda(lambda x: tf.reduce_mean(x, axis=1))(ed)
     mod = tf.keras.Model(inputs=ctxt, outputs=avgd)
     mod.compile(
@@ -47,7 +48,7 @@ def create_cbow_network(win, vocab, embed):
 
 def token_generator(filename):
     with open(filename) as f:
-        for l in f.readlines():
+        for i, l in enumerate(f.readlines()):
             if not l.isspace():
                 tok = word_tokenize(l)
                 if tok:

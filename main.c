@@ -17,7 +17,7 @@
 
 #define COMM 100
 #define ITER 20
-#define BS 20
+#define BS 10
 #define EMB 20
 #define WIN 2
 #define FSPC 1
@@ -99,14 +99,6 @@ Role map_node() {
     exit(1);  // this is bad
 }
 
-void free_weightlist(WeightList* wl) {
-    for in_range(i, wl->n_weights) {
-        free(wl->weights[i].shape);
-        free(wl->weights[i].W);
-    }
-    free(wl->weights);
-}
-
 void free_word(Word* w) {
     free(w->data);
     w->data = NULL;
@@ -145,11 +137,9 @@ void tokenizer(const char* source) {
     while (get_tokens(&wl, source)) {
         for in_range(i, wl.n_words) {
             send_word(&wl.words[i], mpi_id_from_role_id(FILTERER, 0));
-            // printf("OI %s\n", wl.words[i].data);
         }
-        // INFO_PRINTLN("");
     }
-    Word terminator = {0, ""};
+    Word terminator = {1, ""};
     send_word(&terminator, mpi_id_from_role_id(FILTERER, 0));
     free_wordlist(&wl);
 }
@@ -162,9 +152,7 @@ void filterer() {
         if (!strlen(w.data)) {
             break;
         }
-        // INFO_PRINTF("%s: ", w.data);
         idx = vocab_idx_of(&w);
-        // INFO_PRINTF("%ld\n", idx);
         if (idx != -1) {
             MPI_Send(&idx, 1, MPI_LONG, mpi_id_from_role_id(BATCHER, 0),
                     TAG_IWORD, MPI_COMM_WORLD);
@@ -194,11 +182,11 @@ void batcher() {
         }
         if (l_wid == -1) break;
 
-        for in_range(i, n_words) {
-            INFO_PRINTF("%5.0f ", f_widx[i]);
-        }
-
-        INFO_PRINTLN("");
+        // f_idx_list_to_c_string(f_widx, n_words);
+        // for in_range(i, n_words) {
+            // INFO_PRINTF("%5.0f ", f_widx[i]);
+        // }
+        // INFO_PRINTLN("");
         // MPI_Recv(&s, 1, MPI_INT, MPI_ANY_SOURCE, TAG_READY, MPI_COMM_WORLD,
                 // MPI_STATUS_IGNORE);
         // if (s != -1) {
@@ -206,6 +194,14 @@ void batcher() {
         // }
     }
     free(f_widx);
+}
+
+void free_weightlist(WeightList* wl) {
+    for in_range(i, wl->n_weights) {
+        free(wl->weights[i].shape);
+        free(wl->weights[i].W);
+    }
+    free(wl->weights);
 }
 
 void send_weights(const WeightList* wl, int dest, int tag) {

@@ -59,9 +59,19 @@ cdef public int get_tokens(WordList* wl, const char *filename):
 cdef public long vocab_idx_of(Word* w):
     word = w.data.decode('utf-8')
     try:
-        return nn.vocab.index(word)
-    except ValueError:
+        return nn.vocab[word]
+    except KeyError:
         return -1
+
+
+cdef public void f_idx_list_to_print(float* f_idxs, size_t num):
+    idxs = np.asarray(<float[:num]>f_idxs).astype(np.int)
+    cdef str pyuni = ' '.join(nn.inv_vocab[i] for i in idxs)
+    print(pyuni)
+    # cdef bytes b = pyuni.encode('utf-8')
+    # cdef char* retval = <char*>malloc((len(b) + 1) * sizeof(char))
+    # retval[len(b)] = 0
+    # return retval
 
 
 cdef public void c_onehot(float* y, float* idxs, size_t n_idx):
