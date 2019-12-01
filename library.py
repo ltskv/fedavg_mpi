@@ -5,6 +5,8 @@ import numpy as np
 import tensorflow as tf
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)  # STFU!
 
+from mynet import onehot
+
 
 HERE = os.path.abspath(os.path.dirname(__file__))
 CORPUS = os.path.join(HERE, 'melville-moby_dick.txt')
@@ -14,11 +16,6 @@ vocab = {
     w: i for i, w in enumerate(open(VOCAB).read().splitlines(keepends=False))
 }
 inv_vocab = sorted(vocab, key=vocab.get)
-
-
-def onehot(oh_store, idx):
-    oh_store[:] = 0
-    oh_store[np.arange(len(idx)), idx.astype(np.int)] = 1
 
 
 def word_tokenize(s: str):
@@ -70,7 +67,7 @@ def create_cbow_network(win, embed):
 
 def token_generator(filename):
     with open(filename) as f:
-        for i, l in enumerate(f.readlines()):
+        for i, l in enumerate(f.readlines(1000)):
             if not l.isspace():
                 tok = word_tokenize(l)
                 if tok:
