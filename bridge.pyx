@@ -67,14 +67,22 @@ cdef public long vocab_idx_of(Word* w):
         return -1
 
 
-cdef public void f_idx_list_to_print(float* f_idxs, size_t num):
-    idxs = np.asarray(<float[:num]>f_idxs).astype(np.int)
+cdef public void _dbg_idx_list_to_print(long* f_idxs, size_t num):
+    idxs = np.asarray(<long[:num]>f_idxs)
     cdef str pyuni = ' '.join(nn.inv_vocab[i] for i in idxs)
-    print(pyuni)
+    eprint(pyuni)
 
 
-cdef public void debug_print(object o):
+cdef public void _dbg_print(object o):
     eprint(o)
+
+
+cdef public void _dbg_print_cbow_batch(
+    object net, float* batch, size_t bs
+):
+    X_np, y_np = cbow_batch(net, batch, bs)
+    eprint(X_np)
+    eprint(y_np)
 
 
 cdef public void randidx(int* idx, size_t l, size_t how_much):
