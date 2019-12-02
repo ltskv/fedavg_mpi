@@ -52,7 +52,9 @@ cdef public int get_tokens(WordList* wl, const char *filename):
     try:
         words = next(g)
     except StopIteration:
-        return 0
+        tokenizers[fnu] = nn.token_generator(fnu)
+        g = tokenizers[fnu]
+        words = next(g)
     words_into_wordlist(wl, words)
     return 1
 
@@ -69,14 +71,15 @@ cdef public void f_idx_list_to_print(float* f_idxs, size_t num):
     idxs = np.asarray(<float[:num]>f_idxs).astype(np.int)
     cdef str pyuni = ' '.join(nn.inv_vocab[i] for i in idxs)
     print(pyuni)
-    # cdef bytes b = pyuni.encode('utf-8')
-    # cdef char* retval = <char*>malloc((len(b) + 1) * sizeof(char))
-    # retval[len(b)] = 0
-    # return retval
 
 
 cdef public void debug_print(object o):
     eprint(o)
+
+
+cdef public void randidx(int* idx, size_t l, size_t how_much):
+    i_np = np.random.choice(l, how_much, replace=False).astype(np.intc)
+    memcpy(idx, PyArray_DATA(i_np), how_much * sizeof(int))
 
 
 cdef public object create_network(int win, int embed):
