@@ -1,9 +1,9 @@
 .*.sw?
-DS_Store
+.DS_Store
 run
 compile_commands.json
 *.txt
 build/
 cythoned/
 __pycache__/
-data*
+data/

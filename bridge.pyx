@@ -7,6 +7,7 @@ from libc.stdlib cimport malloc, realloc
 from libc.string cimport memcpy
 
 import library as nn
+import flask
 
 
 tokenizers = {}
@@ -42,6 +43,10 @@ ctypedef public struct WordList:
 
 cdef public char *greeting():
     return f'The value is {3**3**3}'.encode('utf-8')
+
+
+cdef public void serve():
+    nn.app.run(port=8448)
 
 
 cdef public int get_tokens(WordList* wl, const char *filename):

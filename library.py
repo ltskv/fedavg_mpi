@@ -2,20 +2,31 @@ import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 import numpy as np
+import flask
 import tensorflow as tf
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)  # STFU!
+from nltk.tokenize import word_tokenize as wt
 
 from mynet import onehot
 
 
 HERE = os.path.abspath(os.path.dirname(__file__))
-CORPUS = os.path.join(HERE, 'melville-moby_dick.txt')
-VOCAB = os.path.join(HERE, 'vocab.txt')
+DATA = os.path.join(HERE, 'data')
+CORPUS = os.path.join(DATA, 'corpus.txt')
+VOCAB = os.path.join(DATA, 'vocab.txt')
 
 vocab = {
     w: i for i, w in enumerate(open(VOCAB).read().splitlines(keepends=False))
 }
 inv_vocab = sorted(vocab, key=vocab.get)
+
+
+app = flask.Flask(__name__)
+
+
+@app.route('/')
+def webfront():
+    return 'Hello world!'
 
 
 def word_tokenize(s: str):

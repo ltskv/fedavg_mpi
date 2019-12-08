@@ -40,6 +40,7 @@ typedef enum{
     FILTERER,
     BATCHER,
     LEARNER,
+    VISUALIZER,
     DISPATCHER
 } Role;
 
@@ -72,7 +73,10 @@ size_t number_of(Role what) {
                 - number_of(TOKENIZER)
                 - number_of(FILTERER)
                 - number_of(BATCHER)
-                - number_of(DISPATCHER);
+                - number_of(DISPATCHER)
+                - number_of(VISUALIZER);
+        case VISUALIZER:
+            return 1;
         case DISPATCHER:
             return 1;
     }
@@ -320,7 +324,7 @@ void dispatcher() {
         }
         combo_weights(&wl, wls, lpr);
         set_net_weights(frank, &wl);
-        // INFO_PRINTF("Frank: %f\n", eval_net(frank));
+        INFO_PRINTF("Frank: %f\n", eval_net(frank));
     }
     Py_DECREF(frank);
     free_weightlist(&wl);
@@ -328,6 +332,12 @@ void dispatcher() {
     free(wls);
     free(round);
 }
+
+void visualizer() {
+    INFO_PRINTF("Starting visualizer %d\n", getpid());
+    serve();
+}
+
 
 int main (int argc, const char **argv) {
     MPI_Init(NULL, NULL);
@@ -357,6 +367,9 @@ int main (int argc, const char **argv) {
             break;
         case DISPATCHER:
             dispatcher();
+            break;
+        case VISUALIZER:
+            visualizer();
             break;
         default:
             INFO_PRINTLN("DYING HORRIBLY!");
