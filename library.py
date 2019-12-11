@@ -2,10 +2,9 @@ import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 import numpy as np
-import flask
 import tensorflow as tf
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)  # STFU!
-from nltk.tokenize import word_tokenize as wt
+tf.random.set_random_seed(42)
 
 from mynet import onehot
 
@@ -14,19 +13,12 @@ HERE = os.path.abspath(os.path.dirname(__file__))
 DATA = os.path.join(HERE, 'data')
 CORPUS = os.path.join(DATA, 'corpus.txt')
 VOCAB = os.path.join(DATA, 'vocab.txt')
+TEST = os.path.join(DATA, 'test.txt')
 
 vocab = {
     w: i for i, w in enumerate(open(VOCAB).read().splitlines(keepends=False))
 }
 inv_vocab = sorted(vocab, key=vocab.get)
-
-
-app = flask.Flask(__name__)
-
-
-@app.route('/')
-def webfront():
-    return 'Hello world!'
 
 
 def word_tokenize(s: str):
@@ -35,21 +27,12 @@ def word_tokenize(s: str):
 
 
 def create_test_dataset(win):
-    S = 1000
-    with open(CORPUS) as f:
-        ds = np.array([vocab[w] for w in word_tokenize(f.read())
-                       if w in vocab])
-    idx = np.random.choice(np.arange(win, len(ds) - win), S)
-    return (
-        # X
-        np.stack([
-            np.concatenate([ds[i-win:i], ds[i+1:i+win+1]])
-            for i in idx
-        ], axis=0).astype(np.float32),
+    test_dataset = np.vectorize(vocab.get)(np.genfromtxt(TEST, dtype=str))
+    assert test_dataset.shape[1] == 2*win + 1
+    X_test = test_dataset[:, [*range(0, win), *range(win+1, win+win+1)]]
+    y_test = onehot(test_dataset[:, win], nc=len(vocab))
+    return X_test, y_test
 
-        #y
-        onehot(ds[idx], nc=len(vocab))
-    )
 
 def create_mnist_network():
     model = tf.keras.models.Sequential([
