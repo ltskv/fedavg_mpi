@@ -149,6 +149,7 @@ void ssend_word(Word* w, int dest) {
 }
 
 int recv_word(Word* w, int src) {
+    // WAT is going on here I have no idea
     long len;
     MPI_Status stat;
     MPI_Recv(&len, 1, MPI_LONG, src, TAG_STLEN, MPI_COMM_WORLD,
@@ -196,38 +197,33 @@ void tokenizer(const char* source) {
 
 void filterer() {
     INFO_PRINTF("Starting filterer %d\n", getpid());
+    int rid = role_id_from_mpi_id(FILTERER, my_mpi_id());
+
     Word w = {0, NULL};
-    const size_t num_streams = number_of(TOKENIZER);
     const size_t entry_size = 2 * WIN + 1;
-    const size_t bufsize = num_streams * entry_size;
-
+    const size_t bufsize = entry_size;
     long* buffer = malloc(bufsize * sizeof(long));
-    size_t* have = calloc(num_streams, sizeof(size_t));
+    size_t have = 0;
 
-    int src = 0;  // WLOG
     while (1) {
-        int stream_offs;
-        while (have[src] != entry_size) {  // TODO FLATTEN PIPELINE
-            src = recv_word(&w, MPI_ANY_SOURCE);
+        while (have != entry_size) {  // TODO FLATTEN PIPELINE
+            recv_word(&w, mpi_id_from_role_id(TOKENIZER, rid));
 
             if (!strlen(w.data)) break;
 
-            src = role_id_from_mpi_id(TOKENIZER, src);
-            stream_offs = src*entry_size;
-            buffer[stream_offs + have[src]] = vocab_idx_of(&w);
-            if (buffer[stream_offs + have[src]] != -1) have[src]++;
+            buffer[have] = vocab_idx_of(&w);
+            if (buffer[have] != -1) have++;
         }
 
         if (!strlen(w.data)) break;
 
-        have[src] = 0;
-        MPI_Send(buffer + stream_offs, entry_size, MPI_LONG,
-                mpi_id_from_role_id(BATCHER, 0),
+        have = 0;
+        MPI_Send(buffer, entry_size, MPI_LONG,
+                mpi_id_from_role_id(BATCHER, rid),
                 TAG_IWORD, MPI_COMM_WORLD);
     }
     free_word(&w);
     free(buffer);
-    free(have);
     INFO_PRINTF("Finishing filterer %d\n", getpid());
 }
 
