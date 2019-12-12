@@ -323,8 +323,8 @@ void learner() {
     int my_batcher_rid = rid % number_of(BATCHER);
     int batcher = mpi_id_from_role_id(BATCHER, my_batcher_rid);
     int dispatcher = mpi_id_from_role_id(DISPATCHER, 0);
-    INFO_PRINTF("%d is Learner %d assigned to batcher %d\n", getpid(),
-            rid, my_batcher_rid);
+    INFO_PRINTF("Learner %d (pid %d) is assigned to pipeline %d\n", rid,
+            getpid(), my_batcher_rid);
 
     PyObject* net = create_network(WIN, EMB);
     WeightList wl;
@@ -413,7 +413,7 @@ void dispatcher() {
     float delta_t = finish - start;
     float delta_l = first_loss - crt_loss;
     INFO_PRINTF(
-            "Laptop MPI sgd consecutive_batch W%d E%d "
+            "Laptop MPI adam consecutive_batch W%d E%d "
             "BS%d R%d bpe%d LPR%d pp%d,"
             "%f,%f,%f\n", WIN, EMB, BS, COMM, ITER, lpr, g_argc - 1,
             delta_l / COMM, delta_l / delta_t, min_loss);

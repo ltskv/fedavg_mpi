@@ -39,7 +39,7 @@ def create_mnist_network():
         tf.keras.layers.Dense(30, input_shape=(784,), activation='relu'),
         tf.keras.layers.Dense(10, activation='softmax')
     ])
-    model.compile(loss='categorical_crossentropy', optimizer='sgd',
+    model.compile(loss='categorical_crossentropy', optimizer='adam',
                   metrics=['accuracy'])
     return model
 
@@ -51,7 +51,7 @@ def create_cbow_network(win, embed):
     blowup = tf.keras.layers.Dense(len(vocab), activation='softmax')(cbow)
     mod = tf.keras.Model(inputs=ctxt, outputs=blowup)
     mod.compile(
-        optimizer='sgd',
+        optimizer='adam',
         loss='categorical_crossentropy',
     )
     return mod
