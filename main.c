@@ -1,4 +1,4 @@
-#include "cythoned/bridge.h"
+#include "build/bridge.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,15 +17,16 @@
 #define TAG_INSTR 9
 #define TAG_TERMT 10
 
-#define COMM 5
-#define ITER 500
+#define COMM 25
+#define ITER 100
 #define BS 32
 #define EMB 32
 #define WIN 2
 #define FLPC 1
 
 #define in_range(i, x) (size_t i = 0; i < (x); i++)
-// I am honestly VERY sorry for this but power corrupts even the best of us
+// I am honestly VERY sorry for this
+// but the power of macros corrupts even the best of us
 
 #define INFO_PRINTF(fmt, ...) \
     do { fprintf(stderr, fmt, __VA_ARGS__); } while(0)
@@ -36,7 +37,7 @@
 
 int g_argc;  // sorry!
 
-typedef enum{
+typedef enum {
     TOKENIZER,
     FILTERER,
     BATCHER,

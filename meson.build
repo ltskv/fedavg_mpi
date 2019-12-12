@@ -11,9 +11,18 @@ numpy_header = include_directories(run_command(
   'python3', '-c', 'import numpy;print(numpy.get_include())'
 ).stdout().strip())
 
-executable(
-  'fedavg_mpi', 'main.c', 'cythoned/bridge.c',
+cython = find_program('cython')
+bridge = custom_target('bridge',
+  output: ['bridge.c', 'bridge.h'],
+  input: 'bridge.pyx',
+  command: [cython, '-3', '@INPUT@', '-o', 'bridge.c'])
+
+executable('fedavg_mpi',
+  'main.c', bridge,
   dependencies: [mpi, python],
   include_directories: numpy_header,
-  link_args: '-Wl,-w'
-)
+  link_args: '-Wl,-w')
+
+run_command('cp',
+  meson.current_build_dir() + 'compile_commands.json',
+  meson.current_source_dir())
