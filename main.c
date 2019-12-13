@@ -415,7 +415,7 @@ void dispatcher() {
     float delta_t = finish - start;
     float delta_l = first_loss - crt_loss;
     INFO_PRINTF(
-            "Laptop MPI adam consecutive_batch "
+            "WIKI MPI adam consecutive_batch "
             "W%lu E%lu BS%lu bpe%lu LPR%d pp%lu,"
             "%f,%f,%f,%f,"
             "%lu,%.0f,%lu\n",

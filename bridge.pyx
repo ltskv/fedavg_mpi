@@ -79,6 +79,7 @@ cdef public int get_tokens(WordList* wl, const char *filename):
     try:
         words = next(g)
     except StopIteration:
+        eprint(f'Text {fnu} depleted, restarting...')
         tokenizers[fnu] = nn.token_generator(fnu)
         g = tokenizers[fnu]
         words = next(g)
@@ -118,7 +119,6 @@ cdef public void randidx(int* idx, size_t l, size_t how_much):
 cdef public object create_network():
     try:
         net = nn.create_cbow_network()
-        eprint(net)
         return net
     except Exception as e:
         eprint(e)
@@ -169,7 +169,7 @@ cdef public void update_weightlist(WeightList* wl, object net):
 cdef public void combo_weights(
     WeightList* wl_frank, WeightList* wls, size_t num_weights
 ):
-    """Not a one-liner anymore :/"""
+    """Not a one-liner anymore \_(".)_/"""
     alpha = 1. / num_weights
     frank = wrap_weight_list(wl_frank)
     for w in frank:
@@ -188,7 +188,7 @@ cdef tuple cbow_batch(float* batch, size_t bs):
 
 
 cdef list wrap_weight_list(WeightList* wl):
-    """Thinly wraps a WeightList struct into a NumPy array."""
+    """Thinly wraps a WeightList struct into a list of NumPy arrays."""
     weights = []
     for i in range(wl.n_weights):
         w_shape = <long[:wl.weights[i].dims]>wl.weights[i].shape
@@ -231,4 +231,4 @@ def ensure_contiguous(a):
 
 
 def eprint(*args, **kwargs):
-    return print(*args, flush=True, **kwargs)
+    return print(*args, flush=True, file=stderr, **kwargs)
