@@ -18,6 +18,7 @@ def read_cfg():
 
 CFG = read_cfg()
 DATA = os.path.join(HERE, CFG['data'])
+RESULTS = os.path.join(HERE, 'trained')
 CORPUS = os.path.join(DATA, 'corpus.txt')
 VOCAB = os.path.join(DATA, 'vocab.txt')
 TEST = os.path.join(DATA, 'test.txt')
@@ -94,3 +95,16 @@ def token_generator(filename):
                 tok = word_tokenize(l)
                 if tok:
                     yield tok
+
+
+def get_embeddings(net):
+    return net.get_weights()[0]
+
+
+def save_embeddings(emb):
+    import numpy as np
+    np.savetxt(os.path.join(RESULTS, f'embeddings_{CFG["data"]}.csv'), emb)
+
+
+def ckpt_network(net):
+    net.save_weights(os.path.join(RESULTS, f'model_ckpt_{CFG["data"]}.h5'))

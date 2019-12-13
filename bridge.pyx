@@ -7,7 +7,7 @@ from libc.stdlib cimport malloc, realloc
 from libc.string cimport memcpy
 
 import library as nn
-import flask
+import server as srv
 
 
 tokenizers = {}
@@ -44,7 +44,12 @@ cdef public char *greeting():
 
 
 cdef public void serve():
-    nn.app.run(port=8448)
+    srv.serve()
+
+
+cdef public void bump_count():
+    eprint(f'bumping count from {srv.counter} to {srv.counter + 1}')
+    srv.counter += 1
 
 
 cdef public size_t getwin():
@@ -141,6 +146,14 @@ cdef public size_t out_size(object net):
 
 cdef public float eval_net(object net):
     return nn.eval_network(net)
+
+
+cdef public void ckpt_net(object net):
+    nn.ckpt_network(net)
+
+
+cdef public void save_emb(object net):
+    nn.save_embeddings(nn.get_embeddings(net))
 
 
 cdef public void init_weightlist_like(WeightList* wl, object net):

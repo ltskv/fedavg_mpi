@@ -4,5 +4,6 @@ run
 compile_commands.json
 cfg.json
 build/
+trained/
 __pycache__/
 data_*/

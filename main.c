@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <mpi.h>
 
 #define TAG_IDGAF 0
@@ -67,13 +68,18 @@ size_t number_of(Role what) {
                 - number_of(DISPATCHER)
                 - number_of(VISUALIZER);
         case VISUALIZER:
-            return 0;
+            return 1;
         case DISPATCHER:
             return 1;
     }
 }
 
 int mpi_id_from_role_id(Role role, int rid) {
+    if (rid >= number_of(role) || rid < 0) {
+        INFO_PRINTF("There aren't %d of %d (but %lu)\n",
+                rid, role, number_of(role));
+        MPI_Abort(MPI_COMM_WORLD, 1);
+    }
     int base = 0;
     for (Role r = TOKENIZER; r < role; r++) {
         base += number_of(r);
@@ -146,20 +152,16 @@ void ssend_word(Word* w, int dest) {
     MPI_Ssend(w->data, len + 1, MPI_CHAR, dest, TAG_SWORD, MPI_COMM_WORLD);
 }
 
-int recv_word(Word* w, int src) {
-    // WAT is going on here I have no idea
+void recv_word(Word* w, int src) {
     long len;
-    MPI_Status stat;
     MPI_Recv(&len, 1, MPI_LONG, src, TAG_STLEN, MPI_COMM_WORLD,
-            &stat);
-    int the_src = stat.MPI_SOURCE;
+            MPI_STATUS_IGNORE);
     if (w->mem < len + 1) {
         w->mem = len + 1;
         w->data = realloc(w->data, sizeof(char) * w->mem);
     }
-    MPI_Recv(w->data, len + 1, MPI_CHAR, the_src, TAG_SWORD, MPI_COMM_WORLD,
+    MPI_Recv(w->data, len + 1, MPI_CHAR, src, TAG_SWORD, MPI_COMM_WORLD,
             MPI_STATUS_IGNORE);
-    return the_src;
 }
 
 void send_window(long* window, size_t winsize, int dest) {
@@ -192,7 +194,11 @@ void tokenizer(const char* source) {
                 ssend_word(&wl.words[i], next);
                 sync_ctr = 0;
             } else {
-                send_word(&wl.words[i], next);
+                if (rand() % 100) {
+                    // drop a word here and there
+                    // probably would make sense if there was less data
+                    send_word(&wl.words[i], next);
+                }
             }
             sync_ctr++;
         }
@@ -398,6 +404,9 @@ void dispatcher() {
         crt_loss = eval_net(frank);
         min_loss = crt_loss < min_loss ? crt_loss : min_loss;
         INFO_PRINTF("Round %ld, validation loss %f\n", rounds, crt_loss);
+
+        ckpt_net(frank);
+
         rounds++;
     }
     time_t finish = time(NULL);
@@ -412,10 +421,12 @@ void dispatcher() {
                 TAG_INSTR, MPI_COMM_WORLD);
     }
 
+    save_emb(frank);
+
     float delta_t = finish - start;
     float delta_l = first_loss - crt_loss;
     INFO_PRINTF(
-            "WIKI MPI adam consecutive_batch "
+            "Moby MPI adam consecutive_batch "
             "W%lu E%lu BS%lu bpe%lu LPR%d pp%lu,"
             "%f,%f,%f,%f,"
             "%lu,%.0f,%lu\n",
@@ -434,6 +445,10 @@ void dispatcher() {
 void visualizer() {
     INFO_PRINTF("Starting visualizer %d\n", getpid());
     serve();
+    while (1) {
+        sleep(1);
+        bump_count();
+    }
 }
 
 int main (int argc, const char **argv) {
@@ -445,7 +460,7 @@ int main (int argc, const char **argv) {
             MPI_Abort(MPI_COMM_WORLD, 1);
         }
         int pipelines = argc - 1;
-        int min_nodes = 4 * pipelines + 1;
+        int min_nodes = 4 * pipelines + 2;
         if (world_size() < min_nodes) {
             INFO_PRINTF("You requested %d pipeline(s) "
                     "but only provided %d procs "
