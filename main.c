@@ -17,14 +17,6 @@
 #define TAG_INSTR 9
 #define TAG_TERMT 10
 
-#define COMM 50
-#define ITER 250
-#define TARGET 8.40
-#define BS 32
-#define EMB 32
-#define WIN 2
-#define FLPC 1
-
 #define in_range(i, x) (size_t i = 0; i < (x); i++)
 // I am honestly VERY sorry for this
 // but the power of macros corrupts even the best of us
@@ -218,7 +210,7 @@ void filterer() {
     int batcher = mpi_id_from_role_id(BATCHER, rid);
 
     Word w = {0, NULL};
-    const size_t window_size = 2 * WIN + 1;
+    const size_t window_size = 2 * getwin() + 1;
     long* window = malloc(window_size * sizeof(long));
     size_t have = 0;
 
@@ -248,15 +240,16 @@ void batcher() {
     INFO_PRINTF("Starting batcher %d\n", getpid());
     int rid = my_role_id(BATCHER);
     int tokenizer = mpi_id_from_role_id(FILTERER, rid);
+    int bs = getbs();
 
     int learner_mpi_id = 0;
-    const size_t window_size = 2 * WIN + 1;
-    const size_t bufsize = BS * window_size;
+    const size_t window_size = 2 * getwin() + 1;
+    const size_t bufsize = bs * window_size;
     float* batch = malloc(bufsize * sizeof(float));
     long* l_wid = malloc(window_size * sizeof(long));
 
     while (1) {
-        for in_range(r, BS) {
+        for in_range(r, bs) {
             recv_window(l_wid, window_size, tokenizer);
 
             if (l_wid[0] == -1) break;
@@ -327,13 +320,15 @@ void learner() {
     int dispatcher = mpi_id_from_role_id(DISPATCHER, 0);
     INFO_PRINTF("Learner %d (pid %d) is assigned to pipeline %d\n", rid,
             getpid(), my_batcher_rid);
+    size_t bs = getbs();
+    size_t bpe = getbpe();
 
-    PyObject* net = create_network(WIN, EMB);
+    PyObject* net = create_network();
     WeightList wl;
     init_weightlist_like(&wl, net);
 
-    size_t window_size = (2*WIN + 1);
-    size_t bufsize = BS * window_size;
+    size_t window_size = 2 * getwin() + 1;
+    size_t bufsize = bs * window_size;
     float* batch = malloc(bufsize * sizeof(float));
 
     int go;
@@ -343,11 +338,11 @@ void learner() {
     while (go != -1) {
         recv_weights(&wl, dispatcher);
         set_net_weights(net, &wl);
-        for in_range(k, ITER) {
+        for in_range(k, bpe) {
             MPI_Send(&me, 1, MPI_INT, batcher, TAG_READY, MPI_COMM_WORLD);
             MPI_Recv(batch, bufsize, MPI_FLOAT, batcher, TAG_BATCH,
                     MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            step_net(net, batch, BS);
+            step_net(net, batch, bs);
         }
         update_weightlist(&wl, net);
         send_weights(&wl, dispatcher);
@@ -364,14 +359,17 @@ void learner() {
 void dispatcher() {
     INFO_PRINTF("Starting dispatcher %d\n", getpid());
     int go = 1;
+    size_t bs = getbs();
+    size_t bpe = getbpe();
+    float target = gettarget();
+    float flpc = getflpc();
 
-    PyObject* frank = create_network(WIN, EMB);
-    create_test_dataset(WIN);
+    PyObject* frank = create_network();
     WeightList wl;
     init_weightlist_like(&wl, frank);
     update_weightlist(&wl, frank);
 
-    int lpr = number_of(LEARNER) * FLPC;  // Learners per round
+    int lpr = number_of(LEARNER) * flpc;  // Learners per round
     WeightList *wls = malloc(sizeof(WeightList) * lpr);
     for in_range(i, lpr) {
         init_weightlist_like(wls + i, frank);
@@ -383,7 +381,7 @@ void dispatcher() {
     float min_loss = crt_loss;
     time_t start = time(NULL);
     size_t rounds = 0;
-    while (crt_loss > TARGET) {
+    while (crt_loss > target) {
         randidx(round, number_of(LEARNER), lpr);
         for in_range(k, lpr) {
             // Instruct learners to learn
@@ -418,12 +416,12 @@ void dispatcher() {
     float delta_l = first_loss - crt_loss;
     INFO_PRINTF(
             "Laptop MPI adam consecutive_batch "
-            "W%d E%d BS%d bpe%d LPR%d pp%lu,"
+            "W%lu E%lu BS%lu bpe%lu LPR%d pp%lu,"
             "%f,%f,%f,%f,"
             "%lu,%.0f,%lu\n",
-            WIN, EMB, BS, ITER, lpr, number_of(TOKENIZER),
-            delta_l/rounds, delta_l/delta_t, min_loss, TARGET,
-            rounds, delta_t,BS*ITER*rounds
+            getwin(), getemb(), bs, bpe, lpr, number_of(TOKENIZER),
+            delta_l/rounds, delta_l/delta_t, min_loss, target,
+            rounds, delta_t,bs*bpe*rounds
             );
     Py_DECREF(frank);
     free_weightlist(&wl);

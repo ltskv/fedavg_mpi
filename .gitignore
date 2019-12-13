@@ -2,8 +2,7 @@
 .DS_Store
 run
 compile_commands.json
-*.txt
+cfg.json
 build/
-cythoned/
 __pycache__/
 data_*/
