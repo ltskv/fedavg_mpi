@@ -1,11 +1,6 @@
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
-import numpy as np
-import tensorflow as tf
-tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)  # STFU!
-tf.random.set_random_seed(42)
-
 from mynet import onehot
 
 
@@ -27,6 +22,7 @@ def word_tokenize(s: str):
 
 
 def create_test_dataset(win):
+    import numpy as np
     test_dataset = np.vectorize(vocab.get)(np.genfromtxt(TEST, dtype=str))
     assert test_dataset.shape[1] == 2*win + 1
     X_test = test_dataset[:, [*range(0, win), *range(win+1, win+win+1)]]
@@ -35,6 +31,10 @@ def create_test_dataset(win):
 
 
 def create_mnist_network():
+    import tensorflow as tf
+    tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)  # STFU!
+    tf.random.set_random_seed(42)
+
     model = tf.keras.models.Sequential([
         tf.keras.layers.Dense(30, input_shape=(784,), activation='relu'),
         tf.keras.layers.Dense(10, activation='softmax')
@@ -45,6 +45,10 @@ def create_mnist_network():
 
 
 def create_cbow_network(win, embed):
+    import tensorflow as tf
+    tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)  # STFU!
+    tf.random.set_random_seed(42)
+
     ctxt = tf.keras.layers.Input(shape=[2*win])
     ed = tf.keras.layers.Embedding(len(vocab), embed, input_length=2*win)(ctxt)
     cbow = tf.keras.layers.Lambda(lambda x: tf.reduce_mean(x, axis=1))(ed)

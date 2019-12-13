@@ -22,7 +22,3 @@ executable('fedavg_mpi',
   dependencies: [mpi, python],
   include_directories: numpy_header,
   link_args: '-Wl,-w')
-
-run_command('cp',
-  meson.current_build_dir() + 'compile_commands.json',
-  meson.current_source_dir())

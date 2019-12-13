@@ -6,4 +6,4 @@ compile_commands.json
 build/
 cythoned/
 __pycache__/
-data/
+data_*/

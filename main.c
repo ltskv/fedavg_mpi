@@ -17,8 +17,9 @@
 #define TAG_INSTR 9
 #define TAG_TERMT 10
 
-#define COMM 25
-#define ITER 100
+#define COMM 50
+#define ITER 250
+#define TARGET 8.40
 #define BS 32
 #define EMB 32
 #define WIN 2
@@ -213,8 +214,8 @@ void tokenizer(const char* source) {
 void filterer() {
     INFO_PRINTF("Starting filterer %d\n", getpid());
     int rid = my_role_id(FILTERER);
-    int prev = mpi_id_from_role_id(TOKENIZER, rid);
-    int next = mpi_id_from_role_id(BATCHER, rid);
+    int tokenizer = mpi_id_from_role_id(TOKENIZER, rid);
+    int batcher = mpi_id_from_role_id(BATCHER, rid);
 
     Word w = {0, NULL};
     const size_t window_size = 2 * WIN + 1;
@@ -223,7 +224,7 @@ void filterer() {
 
     while (1) {
         while (have != window_size) {
-            recv_word(&w, prev);
+            recv_word(&w, tokenizer);
 
             if (!strlen(w.data)) break;
 
@@ -234,10 +235,10 @@ void filterer() {
         if (!strlen(w.data)) break;
 
         have = 0;
-        send_window(window, window_size, next);
+        send_window(window, window_size, batcher);
     }
     window[0] = -1;
-    send_window(window, window_size, next);
+    send_window(window, window_size, batcher);
     free_word(&w);
     free(window);
     INFO_PRINTF("Finishing filterer %d\n", getpid());
@@ -246,7 +247,7 @@ void filterer() {
 void batcher() {
     INFO_PRINTF("Starting batcher %d\n", getpid());
     int rid = my_role_id(BATCHER);
-    int prev = mpi_id_from_role_id(FILTERER, rid);
+    int tokenizer = mpi_id_from_role_id(FILTERER, rid);
 
     int learner_mpi_id = 0;
     const size_t window_size = 2 * WIN + 1;
@@ -256,7 +257,7 @@ void batcher() {
 
     while (1) {
         for in_range(r, BS) {
-            recv_window(l_wid, window_size, prev);
+            recv_window(l_wid, window_size, tokenizer);
 
             if (l_wid[0] == -1) break;
 
@@ -381,7 +382,8 @@ void dispatcher() {
     float crt_loss = first_loss;
     float min_loss = crt_loss;
     time_t start = time(NULL);
-    for in_range(i, COMM) {
+    size_t rounds = 0;
+    while (crt_loss > TARGET) {
         randidx(round, number_of(LEARNER), lpr);
         for in_range(k, lpr) {
             // Instruct learners to learn
@@ -397,8 +399,10 @@ void dispatcher() {
         set_net_weights(frank, &wl);
         crt_loss = eval_net(frank);
         min_loss = crt_loss < min_loss ? crt_loss : min_loss;
-        INFO_PRINTF("Round %ld, validation loss %f\n", i, crt_loss);
+        INFO_PRINTF("Round %ld, validation loss %f\n", rounds, crt_loss);
+        rounds++;
     }
+    time_t finish = time(NULL);
 
     go = -1;
     for in_range(t, number_of(TOKENIZER)) {
@@ -410,14 +414,17 @@ void dispatcher() {
                 TAG_INSTR, MPI_COMM_WORLD);
     }
 
-    time_t finish = time(NULL);
     float delta_t = finish - start;
     float delta_l = first_loss - crt_loss;
     INFO_PRINTF(
-            "Laptop MPI adam consecutive_batch W%d E%d "
-            "BS%d R%d bpe%d LPR%d pp%d,"
-            "%f,%f,%f\n", WIN, EMB, BS, COMM, ITER, lpr, g_argc - 1,
-            delta_l / COMM, delta_l / delta_t, min_loss);
+            "Laptop MPI adam consecutive_batch "
+            "W%d E%d BS%d bpe%d LPR%d pp%lu,"
+            "%f,%f,%f,%f,"
+            "%lu,%.0f,%lu\n",
+            WIN, EMB, BS, ITER, lpr, number_of(TOKENIZER),
+            delta_l/rounds, delta_l/delta_t, min_loss, TARGET,
+            rounds, delta_t,BS*ITER*rounds
+            );
     Py_DECREF(frank);
     free_weightlist(&wl);
     for in_range(i, lpr) free_weightlist(wls + i);
@@ -440,9 +447,9 @@ int main (int argc, const char **argv) {
             MPI_Abort(MPI_COMM_WORLD, 1);
         }
         int pipelines = argc - 1;
-        int min_nodes = 3 * pipelines + 2;
+        int min_nodes = 4 * pipelines + 1;
         if (world_size() < min_nodes) {
-            INFO_PRINTF("You requested %d pipelines "
+            INFO_PRINTF("You requested %d pipeline(s) "
                     "but only provided %d procs "
                     "(%d required)\n",
                     pipelines, world_size(), min_nodes);
