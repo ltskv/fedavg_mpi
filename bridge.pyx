@@ -47,11 +47,6 @@ cdef public void serve():
     srv.serve()
 
 
-cdef public void bump_count():
-    eprint(f'bumping count from {srv.counter} to {srv.counter + 1}')
-    srv.counter += 1
-
-
 cdef public size_t getwin():
     return nn.WIN
 
@@ -70,10 +65,6 @@ cdef public size_t getbpe():
 
 cdef public float gettarget():
     return nn.CFG['target']
-
-
-cdef public float getflpc():
-    return nn.CFG['flpc']
 
 
 cdef public int get_tokens(WordList* wl, const char *filename):

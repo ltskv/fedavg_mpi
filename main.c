@@ -368,14 +368,13 @@ void dispatcher() {
     size_t bs = getbs();
     size_t bpe = getbpe();
     float target = gettarget();
-    float flpc = getflpc();
 
     PyObject* frank = create_network();
     WeightList wl;
     init_weightlist_like(&wl, frank);
     update_weightlist(&wl, frank);
 
-    int lpr = number_of(LEARNER) * flpc;  // Learners per round
+    int lpr = number_of(LEARNER);
     WeightList *wls = malloc(sizeof(WeightList) * lpr);
     for in_range(i, lpr) {
         init_weightlist_like(wls + i, frank);
@@ -445,10 +444,6 @@ void dispatcher() {
 void visualizer() {
     INFO_PRINTF("Starting visualizer %d\n", getpid());
     serve();
-    while (1) {
-        sleep(1);
-        bump_count();
-    }
 }
 
 int main (int argc, const char **argv) {
