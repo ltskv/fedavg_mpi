@@ -55,13 +55,20 @@ mpiexec -n NUM_PROC ./build/fedavg_mpi /path/to/training/data/textfile{1,2,3}
 
 This program **expects a couple of things**:
 
-First, **in the project root** create a directory `data` and put in there
+First, **in the project root** create a directory `config` and put in there
 the following three files:
-- `vocab.txt` -- a whitespace-separated list of words, for which the embeddings
-  will be learned. The words can only contain lowercase alphabetic ASCII chars
-(you can try lowercase UTF-8 and see what happens but no guarantees here).
+
+- `vocab.txt` -- a whitespace-separated (newlines okay too) list of words, for
+  which the embeddings will be learned. The words can only contain lowercase
+alphabetic ASCII chars (you can try lowercase UTF-8 and see what happens but no
+guarantees here). An example:
+
+```
+a quick brown fox jumped over a lazy dog padword hello world other words
+```
+
 - `test.txt` -- a testing dataset with context windows of size 5, one line per
-  window. The central (so third) word in the context window will be used as the
+window. The central (third) word in the context window will be used as the
 target and the surrounding words as the source. The same requirements apply
 here as for the vocabulary, and furthermore only words present in the
 `vocab.txt` are allowed in `test.txt`. This file will be used to track the loss
@@ -72,19 +79,19 @@ the quick brown fox jumped
 over a lazy dog padword
 ```
 
-There also needs to be a file `cfg.json` **in the project root** containing the
-following fields:
+- `cfg.json` -- a JSON file with the following keys defined.
     
-* `"data"`: `some_name` -- the name of the directory in which you put
-`vocab.txt` and `test.txt`;
-* `"bpe"`: Number of independent learner SGD iterations per communication
-  round;
-* `"bs"`: batch size (the number of context windows in a batch);
-* `"target"`: The float value for the loss that you want to achieve, once the
-network reaches this loss it will stop training, save the embeddings and exit.
+    * `"data_name"`: The name of the dataset (can be whatever you call it)
+    * `"bpe"`: Number of independent learner SGD iterations per communication
+      round;
+    * `"bs"`: batch size (the number of context windows in a batch);
+    * `"target"`: The float value for the loss that you want to achieve, once
+      the network reaches this loss it will stop training, save the embeddings
+      and exit.
 
 Then, for each training data file passed as an argument (these can reside
-wherever you want them to), an input pipeline will be constructed in the
+wherever you want them to, even in the `config` folder along with those three
+config files), an input pipeline will be constructed in the
 program. There are 3 nodes in the input pipeline (tokenizer, filter, batcher).
 Then there's this rule that one learner isn't allowed to tap more than one
 pipeline, so each pipeline will need at least one learner. There also needs to
@@ -106,3 +113,34 @@ learners = NUM_PROCS - 2 - 3*num_data_files
 
 The good thing is, the program will complain if it doesn't like the numbers you
 passed it and tell you how to fix it. 
+
+The formula for assigning a learner to a pipeline looks like this:
+
+```
+pipeline_id = learner_id % number_of_pipelines
+```
+
+This ensures that the learners are assigned to pipelines as uniformly as
+possible.
+
+The program will then create a folder named `trained` in the project root
+and will save there the checkpointed model weights as .h5 files and, after the
+training is finished, the resulting embedding matrix as whitespace-separated
+CSV, with the order of the vectors corresponding to the order of words in
+`vocab.txt`.
+
+### Docker
+
+Alternatively, you can use Docker:
+
+```
+docker build -t fedavg-container .
+docker run --rm \
+            -it \
+            -v /host/path/to/config:/workspace/config \
+            -v /host/path/to/save/trained:/workspace/trained \
+            -v /host/path/to/dataset:/container/path/to/dataset
+            fedavg-container \
+                mpiexec -n NUM_PROC ./build/fedavg_mpi \
+                /container/path/to/dataset/train_data{1,2,3,4}
+```

@@ -1,8 +1,8 @@
 import os
-import json
-from sys import stderr
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-
+import json
+import warnings
+warnings.simplefilter('ignore', category=FutureWarning)
 
 WIN = 2
 EMB = 32
@@ -10,11 +10,11 @@ EMB = 32
 HERE = os.path.abspath(os.path.dirname(__file__))
 
 
-DATA = os.path.join(HERE, 'data')
+CONFIG = os.path.join(HERE, 'config')
 RESULTS = os.path.join(HERE, 'trained')
-CORPUS = os.path.join(DATA, 'corpus.txt')
-VOCAB = os.path.join(DATA, 'vocab.txt')
-TEST = os.path.join(DATA, 'test.txt')
+CORPUS = os.path.join(CONFIG, 'corpus.txt')
+VOCAB = os.path.join(CONFIG, 'vocab.txt')
+TEST = os.path.join(CONFIG, 'test.txt')
 
 
 if not os.path.exists(RESULTS):
@@ -22,7 +22,7 @@ if not os.path.exists(RESULTS):
 
 
 def read_cfg():
-    with open(os.path.join(DATA, 'cfg.json'), encoding='utf-8') as f:
+    with open(os.path.join(CONFIG, 'cfg.json'), encoding='utf-8') as f:
         return json.load(f)
 
 
@@ -115,8 +115,10 @@ def get_embeddings(net):
 
 def save_embeddings(emb):
     import numpy as np
-    np.savetxt(os.path.join(RESULTS, f'embeddings_{CFG["name"]}.csv'), emb)
+    np.savetxt(os.path.join(RESULTS, f'embeddings_{CFG["data_name"]}.csv'),
+               emb)
 
 
 def ckpt_network(net):
-    net.save_weights(os.path.join(RESULTS, f'model_ckpt_{CFG["name"]}.h5'))
+    net.save_weights(os.path.join(RESULTS,
+                                  f'model_ckpt_{CFG["data_name"]}.h5'))

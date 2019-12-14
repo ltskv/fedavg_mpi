@@ -5,5 +5,5 @@ compile_commands.json
 build/
 trained/
 __pycache__/
-data
+config
 .dockerignore
