@@ -1,17 +1,26 @@
 from threading import Thread
-from sys import stderr
 
 import flask
 
 
 t = None
 app = flask.Flask(__name__)
-counter = 0
+emb_map = None
+
+
+
+import logging
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.ERROR)
+app.logger.setLevel(logging.ERROR)
 
 
 @app.route('/')
 def main():
-    return f'Hello {counter}'
+    if emb_map is None:
+        return 'Hello World!'
+    else:
+        return '\n'.join(f'{w}: {vec}' for w, vec in emb_map.items())
 
 
 def serve():
@@ -19,7 +28,6 @@ def serve():
     if t is None:
         t = Thread(target=app.run, kwargs={'port': 8448})
     t.start()
-    print('So I kinda started', flush=True, file=stderr)
 
 
 if __name__ == '__main__':

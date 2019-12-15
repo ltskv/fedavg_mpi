@@ -113,6 +113,13 @@ def get_embeddings(net):
     return net.get_weights()[0]
 
 
+def calc_TSNE(emb):
+    # import umap
+    # return umap.UMAP().fit_transform(emb)
+    return emb
+
+
+
 def save_embeddings(emb):
     import numpy as np
     np.savetxt(os.path.join(RESULTS, f'embeddings_{CFG["data_name"]}.csv'),
