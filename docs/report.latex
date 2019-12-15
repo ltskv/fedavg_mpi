@@ -1,0 +1,327 @@
+\documentclass{article}
+\usepackage[letterpaper, margin=1in]{geometry}
+\usepackage[colorlinks]{hyperref}
+\usepackage{listings}
+\lstset{basicstyle=\ttfamily}
+
+\title{Distributed Natural Language Processing with MPI and Python}
+\author{Pavel Lutskov for CPSC 521 @ UBC}
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+
+Natural language processing (NLP) is a field of computer science with
+applications such as digital assistants or machine translation. A typical NLP
+application consists of different stages of data processing forming a pipeline,
+the stages of which may be executed in parallel. Furthermore, individual
+pipeline stages involving complex data intensive NLP algorithms, such as word
+embedding calculation, may also benefit from parallelization. Finally, the
+abundance of the textual data distributed over the Internet motivates
+implementation of NLP algorithms in a distributed fashion. One of the
+established frameworks for distributed computing is the MPI~\cite{mpich}
+library for the C language. However, because of the complexity of the NLP
+algorithms, it is infeasible to implement them in C. Therefore, the idea of
+this project was to interface the existing Python libraries for NLP and machine
+learning with C code and to leverage the MPI library for parallelization and
+distribution of computations. The possible milestones of the project were
+initially identified as follows:
+
+\begin{itemize}
+
+  \item Investigating the possibility of passing data and calling simple Python
+    routines from C.
+
+  \item Writing pipeline stages in C with help of NLTK~\cite{nltk} framework.
+
+  \item Parallelizing individual stages with MPI.
+
+  \item Implementing a data intensive algorithm with parallel stage execution
+    (e.g. large scale word embedding computation).
+
+  \item Benchmarking the parallelized implementation against a sequential
+    Python program.
+
+\end{itemize}
+
+However, early on it became apparent that the Python \verb|multiprocessing|
+module, which is used internally by NLTK, causes various conflicts when
+incorporating the Python interpreter into a C application. For this reason,
+NLTK had to be abandoned, and the focus of the project was shifted towards the
+distributed Deep Learning-based computation of word embeddings with the help of
+TensorFlow framework.
+
+\section{Architecture Overview}
+
+The system implemented during the work on this project computes word embeddings
+for a given vocabulary based on a user-supplied text corpus using the CBOW
+approach proposed~\cite{cbow-skip-gram} by Mikolov et al.\@ in 2013. This
+approach involves training a neural network on unstructured textual data to
+perform some proxy task. The resulting embedding matrix is the weight matrix of
+the first layer of the trained neural network.
+
+The text data, before being supplied to the neural network, has to pass several
+preprocessing stages. These stages, as implemented during in this project,
+form an \textit{input pipeline}, which is depicted in \autoref{fig:pipeline}.
+First, the pipeline node called \textit{Tokenizer} reads a character stream
+from a text file. This node is responsible for replacing all non-ASCII
+alphabetic characters in the stream with whitespace, normalizing the stream by
+setting all remaining alphabetic characters to lowercase, and finally splitting
+the stream into tokens (words) and passing the words one-by-one to the next
+pipeline stage.
+
+The next pipeline stage is filtering, for which the \textit{Filter} node is
+responsible. When computing word embeddings using the CBOW model, only those
+words can be used, that are present in the training vocabulary. Furthermore,
+the neural network doesn't accept raw text as input, but requires the words to
+be encoded with an integer index corresponding to the word's position in the
+vocabulary. Finally, the CBOW network doesn't process individual words, but
+operates on \textit{context windows} of word indices. Therefore, the task of
+the \textit{Filter} node is to remove all the words from the pipeline that are
+not in the training vocabulary, replace the words with integer indices, and,
+finally, to assemble the indices into a context window. As soon as a context
+window is filled it is sent down the pipeline for training batch assembly. In
+the system implemented in this project a context window of size 5 is used.
+
+In the final stage of the input pipeline, the node called \textit{Batcher}
+accumulates the context windows into batches, which can then be requested by
+a node containing the neural network for the actual neural network training.
+
+The other dimension of the parallelism employed in this system is the
+distributed neural network training. In this project, an approach
+proposed~\cite{fedavg} in 2016 by McMahan et al.\@ is used. The idea is to
+distribute a copy of a neural network to a number of independent workers, which
+would then separately perform several training iterations, possibly based on
+their individual independent training data. The learned neural network weights
+are then collected from the workers, a new model is computed by taking the
+arithmetic average of the gathered weights, and then this neural network is
+distributed to the workers for a new training round. The assumption behind this
+architecture is that individually each worker will only need to perform a
+fraction of training iterations for the combined model to achieve the desired
+performance, compared to a case when only a single neural network is trained
+sequentially.
+
+In the presented system, there is one central node, called the
+\textit{Dispatcher}, that is responsible for storing the model weights,
+distributing the weights to the \textit{Learner} nodes, which perform the
+actual training, and collecting the weights at the end of a training round and
+computing their average. The system allows for each \textit{Learner} to have
+its own input pipeline, or for one single input pipeline to be shared among all
+learners, or for some intermediate configuration. However, it is not currently
+possible for one Learner to access more than one input pipeline.
+
+\section{Implementation Details}
+
+\subsection{Overview}
+
+The application logic for the project is split across three files:
+\verb|main.c|, \verb|bridge.pyx| and \verb|library.py|. In the \verb|main.c|
+file, the overall system architecture is defined, the communication between
+nodes is implemented with the help of the MPI library, and, finally, the
+current execution state, such as the current model weights, is stored and
+managed. This project was tested using the MPICH 3.3 library~\cite{mpich}
+implementing the MPI standard. The neural network training algorithms, as well
+as algorithms for stream tokenization and filtering are implemented in the
+\verb|library.py| file. This file targets Python 3.6 and uses the libraries
+NumPy~\cite{numpy} 1.16 for general numerical computations and TensorFlow 1.14
+for Deep Learning, as well as several Python standard library facilities.
+Finally, the file \verb|bridge.pyx| provides interface functions for the C code
+to access the Python functionality, thus creating a bridge between the
+algorithms and the system aspects. In a \verb|.pyx| file, C and Python code can
+be mixed rather freely, with occasional use of some special syntax. This file
+is translated by the Cython framework into \verb|bridge.c| and \verb|bridge.h|
+files. The \verb|bridge.c| is then used as a compilation unit for the final
+executable, and the \verb|bridge.h| is included into the \verb|main.c| as a
+header file. In order for the compilation to succeed, the compiler needs to be
+pointed towards the Python header files, and, since NumPy code is used in
+\verb|bridge.pyx|, to the NumPy header files. Furthermore, the application
+needs to be linked against the Python dynamic libraries, which results in the
+Python interpreter being embedded into the final executable. In order to
+simplify the compilation process and to make the codebase more portable, the
+build system Meson~\cite{meson} was used in this project to facilitate
+building.
+
+\subsection{Running the Application}
+
+To run this system, you will need the following software:
+
+\begin{itemize}
+
+  \item A recent macOS or Linux;
+
+  \item A recent compiler, \textit{GCC} or \textit{clang};
+
+  \item \textit{MPICH} 3;
+
+  \item \textit{Python} 3.6 with headers and libraries (e.g.\@ on Ubuntu you
+    need to install \verb|python3-dev|);
+
+  \item \textit{Meson}, \textit{Cython} and \textit{ninja} for building;
+
+  \item \textit{TensorFlow} 1.14, \textit{Numpy} 1.16;
+
+\end{itemize}
+
+The application can then be built from the repository root by issuing the
+following command:
+
+\begin{lstlisting}
+  meson build && (cd build && ninja)
+\end{lstlisting}
+
+Then, the program expects to be run from the repository root and for a
+directory named \verb|config| to be present in the repository root. This
+directory has to contain the following three files:
+
+\begin{itemize}
+
+  \item \verb|vocab.txt| --- This file will contain the vocabulary words, for
+    which the embeddings will be learned. These words need to be
+    whitespace or newline separated, and only contain alphabetic lowercase
+    ASCII characters.
+
+  \item \verb|test.txt| --- This file contains the testing dataset of context
+    windows, based on which the training performance of the network will be
+    tracked. A context window of size 5 is used in the project, so this file
+    has to contain 5 whitespace separated words per line. The third word in
+    each line is the target word, and other words are the surrounding context.
+    Only the words are allowed here, that are present in \verb|vocab.txt|.
+
+  \item \verb|cfg.json| --- This file contains several key--value pairs for
+    configuration of the training procedure:
+
+    \begin{itemize}
+
+      \item \verb|"data_name"| --- The name of the dataset that is used to train
+        the network, can an alphanumeric string of your choice.
+
+      \item \verb|"bpe"| --- Batches per Epoch, the number of independent
+        iterations each Learner will perform before sending the weights back to
+        the Dispatcher.
+
+      \item \verb|"bs"| --- The number of context windows in a training batch.
+
+      \item \verb|"target"| --- The targeted value of the neural network loss
+        function evaluated on the testing dataset. As soon as this value is
+        reached, the program will stop training and exit.
+
+    \end{itemize}
+
+\end{itemize}
+
+Once these files have been created, the program can be run from the repository
+root by issuing the following command:
+
+\begin{lstlisting}
+  mpiexec -n NUM_PROC ./build/fedavg_mpi /path/to/dataset/text{1,2,3}
+\end{lstlisting}
+
+For each text file passed as an argument, the system will create an input
+pipeline, consisting of 3 nodes (Tokenizer, Filter, Batcher). Furthermore, each
+pipeline needs at least one Learner. There also needs to be one Dispatcher node
+for the whole application. Therefore, the formula for the minimum number of
+processes to be requested from \verb|mpiexec| looks like the following:
+
+\begin{lstlisting}
+  NUM_PROC >= (4 * num_text_files) + 2
+\end{lstlisting}
+
+To figure out how many Learners will be created, the following formula can be
+used:
+
+\begin{lstlisting}
+  num_learners = NUM_PROC - 2 - (3 * num_text_files)
+\end{lstlisting}
+
+During running, the program will create the folder \verb|trained| in the
+repository root, if it doesn't already exist, and will save there after each
+training round the weights of the neural network in form of an HDF5 file, and
+also separately the embedding matrix, which is a whitespace separated CSV file
+with rows representing the embedding vectors and having the same order as the
+words in the \verb|config/vocab.txt| file. The embedding vectors are hard-coded
+to have 32 dimensions.
+
+\subsection{Implementation of Pipeline Components}
+
+\paragraph{Tokenizer} A Tokenizer node is implemented in the \verb|tokenizer|
+function in the \verb|main.c| file, which receives as an argument the path to a
+text file, from which the tokens will be read. It then calls a function
+\verb|get_tokens(WordList* wl, const char* filename)|, defined in the
+\verb|bridge.pyx| file. The \verb|WordList| structure is a dynamically growable
+list of \verb|Word| structs, that records the number of \verb|Word|s in the
+list as well as the memory available for storing the \verb|Word|s. A
+\verb|Word| structure is a wrapper around the C \verb|char*|, keeping track of
+the memory allocated to the pointer. The function \verb|get_tokens| consults a
+global dictionary contained in \verb|bridge.pyx| that keeps track of the file
+names for which a token generator already exists. If the generator for the file
+was not yet created, or if it is already empty, then a new generator is
+created, by calling the \verb|token_generator(filename)| function, defined in
+\verb|library.py|, which returns the generator that yields a list of tokens
+from a line in the file, line by line. A list of words is then queried from the
+generator, and the \verb|WordList| structure is populated with the words from
+the list, expanding the memory allocated to it if needed. The \verb|tokenizer|
+function then sends the \verb|Word|s from the \verb|WordList| one-by-one to the
+Filter node, and as soon as all words are sent it calls \verb|get_tokens|
+again. In the current implementation the Tokenizer will loop on the input data
+until it receives a signal from the Dispatcher to stop. After this, it will
+send an empty \verb|Word| down the pipeline to inform the Filter and the
+Batcher to stop too.
+
+\paragraph{Filter} A Filter node, implemented in \verb|filter| function in
+\verb|main.c| receives the \verb|Word|s one by one from the Tokenizer and looks
+up their indices in the vocabulary by calling the \verb|vocab_idx_of(Word* w)|
+function defined in \verb|bridge.pyx|. That function performs a dictionary
+lookup for the word, based on the \verb|config/vocab.txt| file, and returns its
+index on success or $-1$ if the word is not known. The Filter will assemble the
+indices in a \verb|long*| variable until enough words are received to send a
+context window to the Batcher. If a word received from the Tokenizer is empty,
+the Filter sets the first element in the context window to $-1$ and sends the
+window to the Batcher for termination.
+
+\paragraph{Batcher} A Batcher is a rather simple pure C routine, that first
+assembles the context windows into a batch, simultaneously converting
+\verb|long| into \verb|float|, and then waits for a Learner to announce itself.
+Once it receives a signal from a Learner it responds with a batch and starts
+assembling the next batch. Since this node may receive signals from both Filter
+and Learner, it also may need to receive termination signals from both in order
+to avoid waiting on a signal from a finished process. Therefore, if the first
+element of the received window from the Tokenizer is $-1$, or if the Learner
+sends $-1$ when announcing itself, then the Batcher will terminate immediately.
+
+\paragraph{Learner} A Learner, implemented in \verb|learner| function in
+\verb|main.c| first creates a TensorFlow neural network object, by using
+\verb|bridge.pyx| as a bridge to the \verb|library.py|, and stores the network
+as a \verb|PyObject*|, defined in \verb|Python.h|. It also initializes a C
+\verb|WeightList| struct to store the network weights and to serve as a buffer
+for communication with the Dispatcher. It then waits for the Dispatcher to
+announce a new training round, after which the Dispatcher will send the
+weights and the Learner will receive the weights into the \verb|WeightList|
+struct. Since a \verb|WeightList| has a rather complex structure, a pair of
+functions \verb|send_weights| and \verb|recv_weights| are used for
+communicating the weights. Then, the Learner will use the \verb|WeightList| to
+set the neural network weights, by employing the \verb|set_net_weights|
+function defined in \verb|bridge.pyx|. This is one of the cases where it is
+particularly convenient to use Cython, since raw C memory pointers can be
+easily converted to \verb|NumPy| arrays, which one then can directly use to
+set the network's weights. Then, the Learner will perform a number of training
+iterations, specified by \verb|"bpe"| key in \verb|config/cfg.json| file. For
+each iteration, the Learner will send its MPI id to the designated Batcher and
+will receive a batch in form of a \verb|float*|. This \verb|float*|, together
+with the \verb|PyObject*| network object can be passed to the \verb|step_net|
+Cython function to perform one step of training. This function, again,
+leverages the ease of converting C data into NumPy arrays in Cython. Finally,
+after all iterations, the weights of the network will be written to the
+\verb|WeightList| and the \verb|WeightList| will be sent back to the
+Dispatcher, and the Learner will wait for the signal to start the next training
+round. If it instead receives a signal to stop training, then it will send a
+$-1$ to the designated Batcher and terminate.
+
+\section{Evaluation}
+
+\section{Conclusion and Future Works}
+
+\bibliographystyle{IEEEtran}
+\bibliography{IEEEabrv, references}
+
+\end{document}
