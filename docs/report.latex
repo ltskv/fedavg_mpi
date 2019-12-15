@@ -1,6 +1,7 @@
 \documentclass{article}
 \usepackage[letterpaper, margin=1in]{geometry}
 \usepackage[colorlinks]{hyperref}
+\usepackage{graphicx}
 \usepackage{listings}
 \lstset{basicstyle=\ttfamily}
 
@@ -62,14 +63,21 @@ perform some proxy task. The resulting embedding matrix is the weight matrix of
 the first layer of the trained neural network.
 
 The text data, before being supplied to the neural network, has to pass several
-preprocessing stages. These stages, as implemented during in this project,
-form an \textit{input pipeline}, which is depicted in \autoref{fig:pipeline}.
-First, the pipeline node called \textit{Tokenizer} reads a character stream
-from a text file. This node is responsible for replacing all non-ASCII
-alphabetic characters in the stream with whitespace, normalizing the stream by
-setting all remaining alphabetic characters to lowercase, and finally splitting
-the stream into tokens (words) and passing the words one-by-one to the next
-pipeline stage.
+preprocessing stages. These stages, as implemented in this project, form an
+\textit{input pipeline}, which is depicted in \autoref{fig:pipeline}. First,
+the pipeline node called \textit{Tokenizer} reads a character stream from a
+text file. This node is responsible for replacing all non-ASCII alphabetic
+characters in the stream with whitespace, normalizing the stream by setting all
+remaining alphabetic characters to lowercase, and finally splitting the stream
+into tokens (words) and passing the words one-by-one to the next pipeline
+stage.
+
+\begin{figure}
+  \centering
+  \includegraphics[width=0.7\linewidth]{fig/input_pipeline.pdf}
+  \caption{An Input Pipeline in the System}
+  \label{fig:pipeline}
+\end{figure}
 
 The next pipeline stage is filtering, for which the \textit{Filter} node is
 responsible. When computing word embeddings using the CBOW model, only those
@@ -106,10 +114,18 @@ In the presented system, there is one central node, called the
 \textit{Dispatcher}, that is responsible for storing the model weights,
 distributing the weights to the \textit{Learner} nodes, which perform the
 actual training, and collecting the weights at the end of a training round and
-computing their average. The system allows for each \textit{Learner} to have
-its own input pipeline, or for one single input pipeline to be shared among all
-Learners, or for some intermediate configuration. However, it is not currently
-possible for one Learner to access more than one input pipeline.
+computing their average. \autoref{fig:modes} demonstrates that the system
+allows for each \textit{Learner} to have its own input pipeline, or for one
+single input pipeline to be shared among all Learners, or for some intermediate
+configuration. However, it is not currently possible for one Learner to access
+more than one input pipeline.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\linewidth]{fig/modes.pdf}
+  \caption{Two Configurable Modes of System Operation}
+  \label{fig:modes}
+\end{figure}
 
 \section{Implementation Details}
 
@@ -154,8 +170,8 @@ To run this system, you will need the following software:
 
   \item \textit{MPICH} 3;
 
-  \item \textit{Python} 3.6 with headers and libraries (e.g.\@ on Ubuntu you
-    need to install \verb|python3-dev|);
+  \item \textit{Python} $\geq3.6$ with headers and libraries (e.g.\@ on Ubuntu
+    you need to install \verb|python3-dev|);
 
   \item \textit{Meson}, \textit{Cython} and \textit{ninja} for building;
 
@@ -383,14 +399,14 @@ Learner nodes would essentially result in sequential simulation of the parallel
 processing, thus yielding no improvements in processing time.
 
 The evaluations were performed on two datasets. The first one being the book
-``Moby Dick'' by Herman Melville (~200k words), obtained from the Project
-Gutenberg~\cite{gutenberg}, using the API provided by the NLTK toolkit. The
-vocabulary used for this dataset are all words from the book excluding English
-stop words, as defined by NLTK. The test part for this dataset were a 1000
-randomly selected context windows from the book.
+``Moby Dick'' by Herman Melville (approx.\@ 200k words), obtained from the
+Project Gutenberg~\cite{gutenberg}, using the API provided by the NLTK toolkit.
+The vocabulary used for this dataset are all words from the book excluding
+English stop words, as defined by NLTK. The test part for this dataset were a
+1000 randomly selected context windows from the book.
 
 Another dataset was a part of a recent English Wikipedia dump~\cite{wikidump}
-(~90M words), which was transformed into plain text using the
+(approx.\@ 90M words), which was transformed into plain text using the
 WikiExtractor~\cite{wikiextractor} tool. For this dataset the vocabulary is the
 list of 10000 most frequently used English words, obtained
 from~\cite{10k-words}, again, excluding the stop words. As a test data, 5000
@@ -421,7 +437,7 @@ explained and probably has to do something with the particularities of the
 training algorithm and the training data. This result also validates the use of
 the number of context windows consumed by each Learner as a proxy for system
 performance, since scaling within the number of available cores results in an
-almost perfect correlation between the amount of consumed data and the wall
+almost perfect correlation between the amount of data per Learner and the wall
 time. Going from 2 to 4 Learners decreases the amount of data per Learner by
 another 1.7x, with the wall time remaining the same, demonstrating the core
 depletion on the laptop. Further increasing the number of learner nodes results

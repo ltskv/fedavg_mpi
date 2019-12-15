@@ -38,7 +38,7 @@ though.
 Compilation is supposed to be as simple as: (run in project root)
 
 ```sh
-meson build && cd build && ninja
+meson build && (cd build && ninja)
 ```
 
 If this fails then either fix it yourself or let me know I guess.
