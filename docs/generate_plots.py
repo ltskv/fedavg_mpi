@@ -13,12 +13,14 @@ LOGS = os.path.join(HERE, '../../docs/logs/')
 datasets = {
     'moby': {
         'idx': 0,
-        'name': 'Moby Dick (~200k words)',
+        'name': 'Moby Dick',
+        'words': '200k',
         'target': 8.4,
         'lim': (16000, 320000)
     },
     'wiki': {
-        'name': 'English Wikipedia (~90M words)',
+        'name': 'English Wikipedia',
+        'words': '90M',
         'idx': 1,
         'target': 8.3,
         'lim': (16000, 360000)
@@ -51,8 +53,13 @@ if __name__ == '__main__':
     fig = plt.figure(figsize=(10, 4))
     fig.subplots_adjust(left=0.06, right=0.99, top=0.91, wspace=0.18)
     axs = fig.subplots(1, len(datasets))
-    pp_speedup = []
-    l_speedup = []
+    pp_speedup = {
+        'wiki': [],
+    }
+    l_speedup = {
+        'moby': [],
+        'wiki': [],
+    }
 
     for fn in files:
         name, learners, pipelines = meta_from_fn(fn)
@@ -74,11 +81,10 @@ if __name__ == '__main__':
             f' {pipelines} Pipeline{s(pipelines)}'
         )
         ttt = windows[idx_of(loss, lambda l: l < datasets[name]['target'])]
-        if name == 'wiki':
-            if pipelines > 1 or learners == 1:
-                pp_speedup.append((pipelines, ttt))
-            if pipelines == 1:
-                l_speedup.append((learners, ttt))
+        if (pipelines > 1 or learners == 1) and name == 'wiki':
+            pp_speedup[name].append((pipelines, ttt))
+        if pipelines == 1:
+            l_speedup[name].append((learners, ttt))
 
     for d in datasets.values():
         a = axs[d['idx']]
@@ -86,22 +92,38 @@ if __name__ == '__main__':
         a.set_ylabel('Validation Loss')
         a.set_xticks([windows[1]] + [*range(0, 300001, 100000)])
         a.set_xlim(*d['lim'])
-        a.set_title(d['name'])
+        a.set_title(f'{d["name"]} (~{d["words"]} words)')
         a.legend()
         a.axhline(d['target'], color='k', linestyle=':')
 
     fig.savefig(os.path.join(HERE, 'fig/datasets.pdf'))
 
     def speedup_plot(zipped):
-        factors, time = zip(*sorted(zipped))
-        time = np.asarray(time)
-        speedup = time[0] / time
-        print(factors, time)
-        plt.plot(factors, speedup)
-        plt.xlim(min(factors), max(factors))
-        plt.ylim(min(speedup), max(speedup))
-        plt.xticks([*range(min(factors), max(factors) + 1)])
-        plt.yticks([*range(floor(min(speedup)), ceil(max(speedup)) + 1)])
+        min_f = []
+        max_f = []
+        min_s = []
+        max_s = []
+        for z in sorted(zipped, key=lambda x: datasets[x]['idx']):
+            d = datasets[z]
+            factors, time = zip(*sorted(zipped[z]))
+            time = np.asarray(time)
+            speedup = time[0] / time
+            print(factors, time)
+            plt.plot(
+                factors, speedup,
+                label=f'{d["name"]}, target: {d["target"]}',
+                color=f'C{d["idx"]}'
+            )
+            min_s.append(min(speedup))
+            max_s.append(max(speedup))
+            min_f.append(min(factors))
+            max_f.append(max(factors))
+
+        plt.xlim(min(min_f), max(max_f))
+        plt.ylim(min(min_s), max(max_s))
+        plt.xticks([*range(min(min_f), max(max_f) + 1)])
+        plt.yticks([*range(floor(min(min_s)), ceil(max(max_s)) + 1)])
+        plt.legend(loc='upper left')
         plt.grid()
 
     fig = plt.figure(figsize=(10, 4))
@@ -111,13 +133,13 @@ if __name__ == '__main__':
     speedup_plot(l_speedup)
     plt.title('Single Pipeline')
     plt.xlabel('Number of Learners')
-    plt.ylabel(f'Speedup to Target {datasets["wiki"]["target"]}')
+    plt.ylabel(f'Speedup to Target')
 
     plt.subplot(122)
     speedup_plot(pp_speedup)
     plt.title('Multiple Pipelines')
     plt.xlabel('Number of Pipelines')
-    plt.ylabel(f'Speedup to Target {datasets["wiki"]["target"]}')
+    plt.ylabel(f'Speedup to Target')
 
     plt.savefig(os.path.join(HERE, 'fig/speedups.pdf'))
     plt.show()

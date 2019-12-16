@@ -376,15 +376,15 @@ total number of training windows consumed by the system is the number of
 windows for each Learner times the number of Learners, the Learners process
 their windows in parallel, thus the longest computation path is as long as the
 number of windows that each Learner processes, which is a reasonable
-approximation for parallel performance. Moreover, the tests have shown that the
-training steps dominate the running time (the pipeline with a single Learner
-could process around 45 batches/s, but over 500 batches/s when the call to the
-training function was commented out), therefore the number of context windows
-processed by Learners is the most important parameter for the overall
-performance. It is also possible to count the processed batches and not the
-context windows, however it may be interesting to compare the influence of the
-number of the context windows in a batch (i.e.\@ the \textit{batch size}) on
-the training performance, such that e.g.\@ increasing the batch size might
+approximation for parallel performance. Moreover, the tests have shown that
+Learners dominate the running time (the pipeline with a single Learner could
+process around 45 batches/s, but over 500 batches/s when the call to the
+training function in the Learner was commented out), therefore the number of
+context windows processed by Learners is the most important parameter for the
+overall performance. It is also possible to count the processed batches and not
+the context windows, however it may be interesting to compare the influence of
+the number of the context windows in a batch (i.e.\@ the \textit{batch size})
+on the training performance, such that e.g.\@ increasing the batch size might
 actually reduce the amount of data needed for training.
 
 The wall time was only used as a secondary measure, since due to time
@@ -405,7 +405,7 @@ Another dataset was a part of a recent English Wikipedia dump~\cite{wikidump}
 (approx.\@ 90M words), which was transformed into plain text using the
 WikiExtractor~\cite{wikiextractor} tool. For this dataset the vocabulary is the
 list of 10000 most frequently used English words, obtained
-from~\cite{10k-words}, again, excluding the stop words. As a test data, 5000
+from~\cite{10k-words}, also excluding the stop words. As a test data, 5000
 context windows were randomly sampled from the dump file.
 
 The test configurations were:
@@ -419,10 +419,11 @@ The test configurations were:
 
 For the smaller of the two datasets the target was set to \verb|8.4|, and it
 can be observed in \autoref{fig:datasets}, that modest speedups can be achieved
-when going from 1 Learner to 2 or 4 Learners; employing 8 Learners or more,
-however, doesn't result in any further improvement, with the system maxing out
-on 1.6x speed up. A possible explanation for this is that the ``Moby Dick''
-book is too small for multiple Learners to have sufficient data to train on.
+by employing up to 8 Learners, with the system maxing out on 2.4x speed-up.
+Furthermore, a \mbox{2 Learner -- 2 Pipeline} configuration training
+independently on two different halves of the book never even reaches the
+target. A possible explanation for this is that the ``Moby Dick'' book is too
+small for multiple Learners to have sufficient data to train on.
 
 For the larger dataset with the target set to \verb|8.3|, however, the results
 were more promising, as can be seen in \autoref{fig:datasets} and
@@ -439,19 +440,18 @@ observable, but sub-linear speedups, with the 12 Learner System using 7x less
 data per Learner to achieve the target loss of \verb|8.3|. This decrease in
 gains can probably be linked to the deficiencies of the neural network model
 being used, and thus, to achieve further speed-ups, the network architecture
-and training hyperparameters has to be investigated in more depth. Furthermore,
-the loss plots suggest that for longer training the difference between
-configurations with different number of Learners should still be observable,
-however, due to time and hardware constraints it was not possible to
-investigate the speed-ups achieved in longer running trials in more detail.
+and training hyperparameters have to be investigated in more depth.
+Furthermore, the loss plots suggest that for longer training the difference
+between configurations with different number of Learners should still be
+observable, however, due to time and hardware constraints it was not possible
+to investigate the speed-ups achieved in longer running trials in more detail.
 
 Finally, as can be observed in \autoref{fig:datasets} and
 \autoref{fig:speedups}, the systems with individual pipelines with independent
 input data for each Learner initially perform and scale worse than the
 single-pipeline systems. However, in the later stages of training the effect of
-using multiple pipelines becomes more positive, e.g.\@ the
-\mbox{4 Learner -- 4 Pipeline} system almost catches up with the
-\mbox{12 Learner -- 1 Pipeline}
+using multiple pipelines becomes more positive, e.g.\@ the \mbox{4 Learner -- 4
+  Pipeline} system almost catches up with the \mbox{12 Learner -- 1 Pipeline}
 system. Since input pipelines are computationally cheap, and it is
 computationally viable not to store the data as one big file but rather have it
 split across multiple nodes, this mode of operation should be investigated
@@ -467,7 +467,7 @@ further and possibly preferred for large-scale training.
 \begin{figure}
   \centering
   \includegraphics[width=\linewidth]{fig/speedups.pdf}
-  \caption{Scalability Results with the English Wikipedia Dataset}
+  \caption{Scalability}
   \label{fig:speedups}
 \end{figure}
 
