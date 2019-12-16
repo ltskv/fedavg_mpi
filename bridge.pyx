@@ -7,7 +7,6 @@ from libc.stdlib cimport malloc, realloc
 from libc.string cimport memcpy
 
 import library as nn
-import server as srv
 
 
 tokenizers = {}
@@ -41,16 +40,6 @@ ctypedef public struct WordList:
 
 cdef public char *greeting():
     return f'The value is {3**3**3}'.encode('utf-8')
-
-
-cdef public void serve():
-    srv.serve()
-
-
-cdef public void server_update(float *emb):
-    embeddings = np.asarray(<float[:getvocsize(),:getemb()]>emb)
-    low_dim = nn.calc_TSNE(embeddings)
-    srv.emb_map = dict(zip(nn.inv_vocab, low_dim))
 
 
 cdef public size_t getwin():

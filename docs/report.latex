@@ -244,14 +244,14 @@ for the whole application. Therefore, the formula for the minimum number of
 processes to be requested from \verb|mpiexec| looks like the following:
 
 \begin{lstlisting}
-  NUM_PROC >= (4 * num_text_files) + 2
+  NUM_PROC >= (4 * num_text_files) + 1
 \end{lstlisting}
 
 To figure out how many Learners will be created, the following formula can be
 used:
 
 \begin{lstlisting}
-  num_learners = NUM_PROC - 2 - (3 * num_text_files)
+  num_learners = NUM_PROC - 1 - (3 * num_text_files)
 \end{lstlisting}
 
 During running, the program will create the folder \verb|trained| in the
@@ -367,7 +367,8 @@ statistics and exit.
 \section{Evaluation}
 
 The main focus of evaluation was to determine if executing several neural
-network training nodes in parallel can speed-up the training process. The
+network training nodes in parallel can speed-up the training process.
+The
 employed approach was to define a \textit{target loss} that the network has to
 achieve and then to measure \textit{the number of context windows} that each
 Learner node has to process and, secondarily, the time it takes for the system
@@ -456,6 +457,14 @@ system. Since input pipelines are computationally cheap, and it is
 computationally viable not to store the data as one big file but rather have it
 split across multiple nodes, this mode of operation should be investigated
 further and possibly preferred for large-scale training.
+
+As a last note, the learned embeddings themselves were not of high importance
+for the evaluation, since it is known that in order to obtain high quality
+embeddings a much higher amount of data (a dataset of \mbox{$>$ 100B words})
+and computation time is needed than it was feasible to do as a part of the
+project. However, the learning outcomes were empirically evaluated and it was
+found that even with relatively short training runs the networks could capture
+some meaningful relationships between the vocabulary words.
 
 \begin{figure}
   \centering

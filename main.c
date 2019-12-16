@@ -37,7 +37,6 @@ typedef enum {
     FILTER,
     BATCHER,
     LEARNER,
-    VISUALIZER,
     DISPATCHER
 } Role;
 
@@ -66,10 +65,7 @@ size_t number_of(Role what) {
                 - number_of(TOKENIZER)
                 - number_of(FILTER)
                 - number_of(BATCHER)
-                - number_of(DISPATCHER)
-                - number_of(VISUALIZER);
-        case VISUALIZER:
-            return 0;
+                - number_of(DISPATCHER);
         case DISPATCHER:
             return 1;
     }
@@ -364,7 +360,6 @@ void learner() {
 void dispatcher() {
     INFO_PRINTF("Starting dispatcher %d\n", getpid());
     int go = 1;
-    // int visualizer = mpi_id_from_role_id(VISUALIZER, 0);
     size_t bs = getbs();
     size_t bpe = getbpe();
     float target = gettarget();
@@ -404,9 +399,6 @@ void dispatcher() {
         crt_loss = eval_net(frank);
         min_loss = crt_loss < min_loss ? crt_loss : min_loss;
         INFO_PRINTF("Round %ld, validation loss %f\n", rounds, crt_loss);
-        // MPI_Send(&go, 1, MPI_INT, visualizer, TAG_INSTR, MPI_COMM_WORLD);
-        // MPI_Send(wl.weights[0].W, emb_mat_size, MPI_FLOAT,
-                // visualizer, TAG_EMBED, MPI_COMM_WORLD);
 
         ckpt_net(frank);
 
@@ -423,9 +415,6 @@ void dispatcher() {
         MPI_Send(&go, 1, MPI_INT, mpi_id_from_role_id(LEARNER, l),
                 TAG_INSTR, MPI_COMM_WORLD);
     }
-    // MPI_Send(&go, 1, MPI_INT, mpi_id_from_role_id(VISUALIZER, 0),
-            // TAG_INSTR, MPI_COMM_WORLD);
-
     save_emb(frank);
 
     float delta_t = finish - start;
@@ -445,32 +434,6 @@ void dispatcher() {
     free(wls);
     free(round);
     INFO_PRINTF("Finishing dispatcher %d\n", getpid());
-    // sleep(4);
-    // INFO_PRINTLN("Visualization server is still running on port 8448\n"
-            // "To terminate, press Ctrl-C");
-}
-
-void visualizer() {
-    INFO_PRINTF("Starting visualizer %d\n", getpid());
-    serve();
-
-    int dispatcher = mpi_id_from_role_id(DISPATCHER, 0);
-    int go_on = 1;
-
-    size_t emb_mat_size = getvocsize() * getemb();
-    float* embeddings = malloc(emb_mat_size * sizeof(float));
-
-    MPI_Recv(&go_on, 1, MPI_INT, dispatcher, TAG_INSTR, MPI_COMM_WORLD,
-            MPI_STATUS_IGNORE);
-
-    while(go_on != -1) {
-        MPI_Recv(embeddings, emb_mat_size, MPI_FLOAT, dispatcher, TAG_EMBED,
-                MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        server_update(embeddings);
-        MPI_Recv(&go_on, 1, MPI_INT, dispatcher, TAG_INSTR, MPI_COMM_WORLD,
-                MPI_STATUS_IGNORE);
-    }
-    INFO_PRINTF("Exiting visualizer node %d\n", getpid());
 }
 
 int main (int argc, const char **argv) {
@@ -483,7 +446,7 @@ int main (int argc, const char **argv) {
             MPI_Abort(MPI_COMM_WORLD, 1);
         }
         int pipelines = argc - 1;
-        int min_nodes = 4 * pipelines + 2;
+        int min_nodes = 4 * pipelines + 1;
         if (world_size() < min_nodes) {
             INFO_PRINTF("You requested %d pipeline(s) "
                     "but only provided %d procs "
@@ -518,9 +481,6 @@ int main (int argc, const char **argv) {
             break;
         case DISPATCHER:
             dispatcher();
-            break;
-        case VISUALIZER:
-            visualizer();
             break;
         default:
             INFO_PRINTLN("DYING HORRIBLY!");
