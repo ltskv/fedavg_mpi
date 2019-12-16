@@ -5,6 +5,8 @@
 \usepackage{listings}
 \lstset{basicstyle=\ttfamily}
 
+\renewcommand{\floatpagefraction}{.8}
+
 \title{Distributed Natural Language Processing with MPI and Python}
 \author{Pavel Lutskov for CPSC 521 @ UBC}
 \begin{document}
@@ -51,7 +53,7 @@ module, which is used internally by NLTK, causes various conflicts when
 incorporating the Python interpreter into a C application. For this reason,
 NLTK had to be abandoned, and the focus of the project was shifted towards the
 distributed Deep Learning-based computation of word embeddings with the help of
-TensorFlow framework.
+TensorFlow~\cite{tensorflow} framework.
 
 \section{Architecture Overview}
 
@@ -93,8 +95,9 @@ window is filled it is sent down the pipeline for training batch assembly. In
 the system implemented in this project a context window of size 5 is used.
 
 In the final stage of the input pipeline, the node called \textit{Batcher}
-accumulates the context windows into batches, which can then be requested by
-a node containing the neural network for the actual neural network training.
+accumulates the context windows into batches, which can then be requested by a
+\textit{Learner} node containing the neural network for the actual neural
+network training.
 
 The other dimension of the parallelism employed in this system is the
 distributed neural network training. In this project, an approach
@@ -123,7 +126,7 @@ more than one input pipeline.
 \begin{figure}[h]
   \centering
   \includegraphics[width=\linewidth]{fig/modes.pdf}
-  \caption{Two Configurable Modes of System Operation}
+  \caption{Possible Pipeline Configurations}
   \label{fig:modes}
 \end{figure}
 
@@ -146,17 +149,17 @@ Finally, the file \verb|bridge.pyx| provides interface functions for the C code
 to access the Python functionality, thus creating a bridge between the
 algorithms and the system aspects. In a \verb|.pyx| file, C and Python code can
 be mixed rather freely, with occasional use of some special syntax. This file
-is translated by the Cython framework into \verb|bridge.c| and \verb|bridge.h|
-files. The \verb|bridge.c| is then used as a compilation unit for the final
-executable, and the \verb|bridge.h| is included into the \verb|main.c| as a
-header file. In order for the compilation to succeed, the compiler needs to be
-pointed towards the Python header files, and, since NumPy code is used in
-\verb|bridge.pyx|, to the NumPy header files. Furthermore, the application
-needs to be linked against the Python dynamic libraries, which results in the
-Python interpreter being embedded into the final executable. In order to
-simplify the compilation process and to make the codebase more portable, the
-build system Meson~\cite{meson} was used in this project to facilitate
-building.
+is translated by the Cython~\cite{cython} framework into \verb|bridge.c| and
+\verb|bridge.h| files. The \verb|bridge.c| is then used as a compilation unit
+for the final executable, and the \verb|bridge.h| is included into the
+\verb|main.c| as a header file. In order for the compilation to succeed, the
+compiler needs to be pointed towards the Python header files, and, since NumPy
+code is used in \verb|bridge.pyx|, to the NumPy header files. Furthermore, the
+application needs to be linked against the Python dynamic libraries, which
+results in the Python interpreter being embedded into the final executable. In
+order to simplify the compilation process and to make the codebase more
+portable, the build system Meson~\cite{meson} was used in this project to
+facilitate building.
 
 \subsection{Running the Application} \label{ssec:running}
 
@@ -216,7 +219,8 @@ directory has to contain the following three files:
         iterations each Learner will perform before sending the weights back to
         the Dispatcher.
 
-      \item \verb|"bs"| --- The number of context windows in a training batch.
+      \item \verb|"bs"| --- Batch Size, the number of context windows in a
+        training batch.
 
       \item \verb|"target"| --- The targeted value of the neural network loss
         function evaluated on the testing dataset. As soon as this value is
@@ -297,49 +301,50 @@ Batcher to stop too.
 up their indices in the vocabulary by calling the \verb|vocab_idx_of(Word* w)|
 function defined in \verb|bridge.pyx|. That function performs a dictionary
 lookup for the word, based on the \verb|config/vocab.txt| file, and returns its
-index on success or \verb|-1| if the word is not known. The Filter will assemble the
-indices in a \verb|long* windows| until enough words are received to send the
-context window to the Batcher. If a word received from the Tokenizer is empty,
-the Filter sets the first element in the context window to \verb|-1| and sends the
-window to the Batcher for termination.
+index on success or \verb|-1| if the word is not known. The Filter will
+assemble the indices in a \verb|long* window| variable until enough words are
+received to send the context window to the Batcher. If a word received from the
+Tokenizer is empty, the Filter sets the first element in the context window to
+\verb|-1| and sends the window to the Batcher for termination.
 
 \paragraph{Batcher} A Batcher is a rather simple pure C routine, that first
 assembles the context windows into a batch, simultaneously converting
-\verb|long| into \verb|float|, and then waits for a Learner to announce itself.
-Once it receives a signal from a Learner it responds with a batch and starts
-assembling the next batch. Since this node may receive signals from both Filter
-and Learner, it also may need to receive termination signals from both in order
-to avoid waiting for a signal from a finished process. Therefore, if the first
-element of the received window from the Tokenizer is \verb|-1|, or if the Learner
-sends \verb|-1| when announcing itself, then the Batcher will terminate immediately.
+\verb|long| into \verb|float|, and then waits for some Learner to announce
+itself. Once it receives a signal from a Learner it responds with a batch and
+starts assembling the next batch. Since this node may receive signals from both
+Filter and Learner, it also may need to receive termination signals from both
+in order to avoid waiting for a signal from a finished process. Therefore, if
+the first element of the received window from the Tokenizer is \verb|-1|, or if
+the Learner sends \verb|-1| when announcing itself, then the Batcher will
+terminate immediately.
 
 \paragraph{Learner} A Learner, implemented in \verb|learner| function in
-\verb|main.c| first creates a TensorFlow neural network object, by using
-\verb|bridge.pyx| as a bridge to the \verb|library.py|, and stores the network
-as a \verb|PyObject*|, defined in \verb|Python.h|. It also initializes a C
-\verb|WeightList| struct to store the network weights and to serve as a buffer
-for communication with the Dispatcher. It then waits for the Dispatcher to
-announce a new training round, after which the Dispatcher will send the weights
-and the Learner will receive the weights into the \verb|WeightList| struct.
-Since a \verb|WeightList| has a rather complex structure, a pair of functions
+\verb|main.c| first creates a TensorFlow neural network object and stores the
+network as a \verb|PyObject*|. It also initializes a C \verb|WeightList| struct
+to store the network weights and to serve as a buffer for communication with
+the Dispatcher. It then waits for the Dispatcher to announce a new training
+round, after which the Dispatcher will send the weights and the Learner will
+receive the weights into the \verb|WeightList| struct. Since a
+\verb|WeightList| has a rather complex structure, a pair of functions
 \verb|send_weights| and \verb|recv_weights| are used for communicating the
 weights. Then, the Learner will use the \verb|WeightList| to set the neural
 network weights, by employing the \verb|set_net_weights| function defined in
 \verb|bridge.pyx|. This is one of the cases where it is particularly convenient
 to use Cython, since raw C memory pointers can be easily converted to
-\verb|NumPy| arrays, which one then can directly use to set the network's
-weights. Then, the Learner will perform a number of training iterations,
-specified by \verb|"bpe"| key in \verb|config/cfg.json| file. For each
-iteration, the Learner will send its MPI id to its designated Batcher and will
-receive a batch in form of a \verb|float*|. This \verb|float*|, together with
-the \verb|PyObject*| network object can be passed to the \verb|step_net| Cython
-function to perform one step of training. This function, again, leverages the
-ease of converting C data into NumPy arrays in Cython. Finally, after all
-iterations, the weights of the network will be written to the \verb|WeightList|
-by a Cython routine \verb|update_weightlist| and the \verb|WeightList| will be
-sent back to the Dispatcher, and the Learner will wait for the signal to start
-the next training round. If it instead receives a signal to stop training, then
-it will send a \verb|-1| to its designated Batcher and terminate.
+\verb|NumPy| arrays, which one then can directly use to set the weights of a
+TensorFlow network. Then, the Learner will perform a number of training
+iterations, specified by \verb|"bpe"| key in \verb|config/cfg.json| file. For
+each iteration, the Learner will send its MPI id to its designated Batcher and
+will receive a batch in form of a \verb|float*|. This \verb|float*|, together
+with the \verb|PyObject*| network object can be passed to the \verb|step_net|
+Cython function to perform one step of training. This function, again,
+leverages the ease of converting C data into NumPy arrays in Cython. Finally,
+after all iterations, the weights of the network will be written to the
+\verb|WeightList| by a Cython routine \verb|update_weightlist| and the
+\verb|WeightList| will be sent back to the Dispatcher, and the Learner will
+wait for the signal to start the next training round. If it instead receives a
+signal to stop training, then it will send a \verb|-1| to its designated
+Batcher and terminate.
 
 \paragraph{Dispatcher} The Dispatcher also initializes a neural network and a
 \verb|WeightList| structure using the same procedure as the Learner. This
@@ -362,36 +367,27 @@ statistics and exit.
 \section{Evaluation}
 
 The main focus of evaluation was to determine if executing several neural
-network training nodes in parallel can speed-up the training process. The first
-attempt to quantify performance was to train for a specified amount of training
-rounds and compare the final loss, the average loss decrease per training
-round, and the average loss decrease per second for system configurations with
-different number of Learner nodes. The problem with this approach, however, is
-that the loss curve doesn't have a linear shape when plotted against the number
-of training iterations, with usually a strong slope in the beginning of the
-training and then almost flat after some iterations, and is therefore a poor
-approximation for the \textit{time} it takes to train a neural network.
-
-Therefore, another approach was employed, which is to define a \textit{target
-  loss} that the network has to achieve and then to measure \textit{the number
-  of training windows} that each Learner node has to process and also the time
-it takes for the system to reach the target. The motivation behind this
-approach is that although the total number of training window consumed by the
-system is the number of windows for each Learner times the number of Learners,
-the Learners process their windows in parallel, thus the longest computation
-path is as long as the number of windows that each Learner processes, which is
-a reasonable approximation for parallel performance. Moreover, the tests have
-shown that the training steps dominate the running time (the pipeline with a
-single Learner could process around 45 batches/s, but over 500 batches/s when
-the call to the training function was commented out), therefore the number of
-context windows processed by Learners is the most important parameter for the
-overall performance. It is also possible to count the processed batches and not
-the context windows, however it may be interesting to compare the influence of
-the number of the context windows in a batch (i.e.\@ the \textit{batch size})
-on the training performance, such that e.g.\@ increasing the batch size might
+network training nodes in parallel can speed-up the training process. The
+employed approach was to define a \textit{target loss} that the network has to
+achieve and then to measure \textit{the number of context windows} that each
+Learner node has to process and, secondarily, the time it takes for the system
+to reach the target. The motivation behind this approach is that although the
+total number of training windows consumed by the system is the number of
+windows for each Learner times the number of Learners, the Learners process
+their windows in parallel, thus the longest computation path is as long as the
+number of windows that each Learner processes, which is a reasonable
+approximation for parallel performance. Moreover, the tests have shown that the
+training steps dominate the running time (the pipeline with a single Learner
+could process around 45 batches/s, but over 500 batches/s when the call to the
+training function was commented out), therefore the number of context windows
+processed by Learners is the most important parameter for the overall
+performance. It is also possible to count the processed batches and not the
+context windows, however it may be interesting to compare the influence of the
+number of the context windows in a batch (i.e.\@ the \textit{batch size}) on
+the training performance, such that e.g.\@ increasing the batch size might
 actually reduce the amount of data needed for training.
 
-Finally, the wall time was only used as a secondary measure, since due to time
+The wall time was only used as a secondary measure, since due to time
 constraints and software incompatibility it was not possible to launch the
 system on the computing cluster, so the tests had to be performed on a laptop
 with a modest double core 1.3 GHz CPU, which means that using more than 2
@@ -415,43 +411,65 @@ context windows were randomly sampled from the dump file.
 The test configurations were:
 
 \begin{itemize}
-  \item A single pipeline with 1, 2, 4, 8, 12, 16 Learners;
-  \item or individual pipelines for 1, 2, 4 Learners, each reading a separate
-part of a dataset.
+  \item a single pipeline with 1, 2, 4, 8, 12 Learners (up to 17 total
+    processes);
+  \item or individual pipelines for 1, 2, 4, 8 Learners, each reading a
+    separate part of a dataset (up to 33 total processes).
 \end{itemize}
 
-For the smaller of the two datasets the target was set to 8.40, and it can be
-observed in \autoref{fig:moby}, that modest speedups can be achieved
-when going from 1 Learner to 2 or 4 learners; employing 8 Learners or more,
+For the smaller of the two datasets the target was set to \verb|8.4|, and it
+can be observed in \autoref{fig:datasets}, that modest speedups can be achieved
+when going from 1 Learner to 2 or 4 Learners; employing 8 Learners or more,
 however, doesn't result in any further improvement, with the system maxing out
 on 1.6x speed up. A possible explanation for this is that the ``Moby Dick''
-book is too small to for the network to learn something meaningful and
-therefore the validation loss of 8.40 is the best that can be achieved, which
-can be done fairly quickly even with one Learner node.
+book is too small for multiple Learners to have sufficient data to train on.
 
-For the larger dataset with the target set to 8.30, however, the results were
-more promising, as can be seen in \autoref{fig:wiki}. Using 2 Learners instead
-of 1 resulted in superlinear reduction of both the amount of data consumed by
-each Learner (2.18x) and time to target (2.14x), which cannot be trivially
-explained and probably has to do something with the particularities of the
-training algorithm and the training data. This result also validates the use of
-the number of context windows consumed by each Learner as a proxy for system
-performance, since scaling within the number of available cores results in an
-almost perfect correlation between the amount of data per Learner and the wall
-time. Going from 2 to 4 Learners decreases the amount of data per Learner by
-another 1.7x, with the wall time remaining the same, demonstrating the core
-depletion on the laptop. Further increasing the number of learner nodes results
-in observable, but sub-linear speedups, with the 12 Learner System using 7x
-less data per Learner. This decrease in gains can probably be linked to the
-deficiencies of the neural network model being used, and thus, to achieve
-further speed-ups, the network architecture has to be investigated in more
-depth.
+For the larger dataset with the target set to \verb|8.3|, however, the results
+were more promising, as can be seen in \autoref{fig:datasets} and
+\autoref{fig:speedups}. Using 2 Learners instead of 1 resulted in nearly linear
+reduction of both the amount of data consumed by each Learner (1.95x) and time
+to target (1.94x). This result also validates the use of the number of context
+windows consumed by each Learner as a proxy for system performance, since
+scaling within the number of available cores results in an almost perfect
+correlation between the amount of data per Learner and the wall time. Going
+from 2 to 4 Learners decreases the amount of data per Learner by another 2x,
+with the wall time remaining roughly the same, demonstrating the core depletion
+on the laptop. Further increasing the number of Learner nodes results in
+observable, but sub-linear speedups, with the 12 Learner System using 7x less
+data per Learner to achieve the target loss of \verb|8.3|. This decrease in
+gains can probably be linked to the deficiencies of the neural network model
+being used, and thus, to achieve further speed-ups, the network architecture
+and training hyperparameters has to be investigated in more depth. Furthermore,
+the loss plots suggest that for longer training the difference between
+configurations with different number of Learners should still be observable,
+however, due to time and hardware constraints it was not possible to
+investigate the speed-ups achieved in longer running trials in more detail.
 
-Finally, as demonstrated in \autoref{fig:moby, fig:dick}, the systems with
-individual independent pipelines for each learner perform and scale worse than
-the single-pipeline systems. However, the trend for scaling is still visible
-and provides evidence that that training is possible even when non-IID
-heterogeneous data is available to each individual Learner.
+Finally, as can be observed in \autoref{fig:datasets} and
+\autoref{fig:speedups}, the systems with individual pipelines with independent
+input data for each Learner initially perform and scale worse than the
+single-pipeline systems. However, in the later stages of training the effect of
+using multiple pipelines becomes more positive, e.g.\@ the
+\mbox{4 Learner -- 4 Pipeline} system almost catches up with the
+\mbox{12 Learner -- 1 Pipeline}
+system. Since input pipelines are computationally cheap, and it is
+computationally viable not to store the data as one big file but rather have it
+split across multiple nodes, this mode of operation should be investigated
+further and possibly preferred for large-scale training.
+
+\begin{figure}
+  \centering
+  \includegraphics[width=\linewidth]{fig/datasets.pdf}
+  \caption{Validation Loss Against the Amount of Data per Learner}
+  \label{fig:datasets}
+\end{figure}
+
+\begin{figure}
+  \centering
+  \includegraphics[width=\linewidth]{fig/speedups.pdf}
+  \caption{Scalability Results with the English Wikipedia Dataset}
+  \label{fig:speedups}
+\end{figure}
 
 \section{Conclusion and Future Works}
 
@@ -465,13 +483,12 @@ two parts. The drawbacks of this approach are that the full Python interpreter
 still gets embedded into the C application, and, furthermore, some parts of
 Python, such as the \verb|multiprocessing| module, result in failures when
 embedded into a C application, which prohibits to use some Python libraries
-like \textit{scikit-learn} or \textit{NLTK} that use \verb|multiprocessing|
-internally.
+like NLTK that use \verb|multiprocessing| internally.
 
 Another major accomplishment is the creation of a modular distributed Deep
 Learning architecture for a basic NLP task, which can be further expanded to
 compute higher level problems, like word prediction or sentiment analysis.
-Furthermore, this results of the tests show that there can be significant
+Furthermore, the results of the tests show that there can be significant
 improvements in terms of training times if the training is performed on
 multiple nodes in parallel, even with independent data on each node.
 
@@ -480,7 +497,11 @@ system currently uses CPU for neural network training, which is inefficient.
 Therefore, it might be interesting to investigate whether MPI can be used to
 distribute the system across the cluster of GPU-equipped nodes. Furthermore,
 the architecture of the neural network probably requires some fine-tuning to
-achieve better scalability, as reported in~\cite{fedavg}. Finally, an
+achieve better scalability, as reported in~\cite{fedavg}. It would also be
+interesting to investigate finer-grain parallelism with FG-MPI~\cite{fg-mpi},
+especially for the input pipeline, since the pipeline nodes are rather too
+lightweight for each of them to occupy a separate process, and therefore the
+coroutine-based parallelism might be a better fit in this case. Finally, an
 interesting direction would be to split the neural networks across multiple
 nodes, with one neural network layer occupying one node (e.g.\@ as
 in~\cite{syngrad}), which might distribute the computational load across the
