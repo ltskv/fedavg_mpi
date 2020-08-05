@@ -68,11 +68,11 @@ The text data, before being supplied to the neural network, has to pass several
 preprocessing stages. These stages, as implemented in this project, form an
 \textit{input pipeline}, which is depicted in \autoref{fig:pipeline}. First,
 the pipeline node called \textit{Tokenizer} reads a character stream from a
-text file. This node is responsible for replacing all non-ASCII alphabetic
-characters in the stream with whitespace, normalizing the stream by setting all
-remaining alphabetic characters to lowercase, and finally splitting the stream
-into tokens (words) and passing the words one-by-one to the next pipeline
-stage.
+text file. This node is responsible for replacing all non-alphabetic and
+non-ASCII characters in the stream with whitespace, normalizing the stream by
+setting all remaining alphabetic characters to lowercase, and finally splitting
+the stream into tokens (words) and passing the words one-by-one to the next
+pipeline stage.
 
 \begin{figure}
   \centering
@@ -95,8 +95,8 @@ window is filled it is sent down the pipeline for training batch assembly. In
 the system implemented in this project a context window of size 5 is used.
 
 In the final stage of the input pipeline, the node called \textit{Batcher}
-accumulates the context windows into batches, which can then be requested by a
-\textit{Learner} node containing the neural network for the actual neural
+accumulates the context windows into batches, which can then be requested by
+\textit{Learner} nodes containing the neural network for the actual neural
 network training.
 
 The other dimension of the parallelism employed in this system is the
@@ -115,8 +115,8 @@ sequentially.
 
 In the presented system, there is one central node, called the
 \textit{Dispatcher}, that is responsible for storing the model weights,
-distributing the weights to the \textit{Learner} nodes, which perform the
-actual training, and collecting the weights at the end of a training round and
+distributing the weights to the \textit{Learner} nodes (which perform the
+actual training) and collecting the weights at the end of a training round and
 computing their average. \autoref{fig:modes} demonstrates that the system
 allows for each \textit{Learner} to have its own input pipeline, or for one
 single input pipeline to be shared among all Learners, or for some intermediate
@@ -268,7 +268,7 @@ to have 32 dimensions.
 read by the \verb|library.py| module on start-up, and the vocabulary, the test
 dataset and the parameters of training are stored as global module objects. The
 \verb|bridge.pyx| then imports the \verb|library.py| module and defines several
-C public API functions for the \verb|main.c| code to access the configuration
+public C API functions for the \verb|main.c| code to access the configuration
 parameters, or to perform a word index lookup or evaluate a neural network
 based on the test dataset.
 
@@ -277,7 +277,7 @@ function in the \verb|main.c| file, which receives as an argument the path to a
 text file, from which the tokens will be read. It then calls a function
 \verb|get_tokens(WordList* wl, const char* filename)|, defined in the
 \verb|bridge.pyx| file. The \verb|WordList| structure is a dynamically growable
-list of \verb|Word| structs, that records the number of \verb|Word|s in the
+list of \verb|Word| structs that records the number of \verb|Word|s in the
 list as well as the memory available for storing the \verb|Word|s. A
 \verb|Word| structure is a wrapper around the C \verb|char*|, keeping track of
 the memory allocated to the pointer. The function \verb|get_tokens| consults a
@@ -285,7 +285,7 @@ global dictionary contained in \verb|bridge.pyx| that keeps track of the file
 names for which a token generator already exists. If the generator for the file
 was not yet created, or if it is already empty, then a new generator is
 created, by calling the \verb|token_generator(filename)| function, defined in
-\verb|library.py|, which returns the generator that yields a list of tokens
+\verb|library.py|, which returns a generator that yields a list of tokens
 from a line in the file, line by line. A list of words is then queried from the
 generator, and the \verb|WordList| structure is populated with the words from
 the list, expanding the memory allocated to it if needed. The \verb|tokenizer|
@@ -302,10 +302,10 @@ up their indices in the vocabulary by calling the \verb|vocab_idx_of(Word* w)|
 function defined in \verb|bridge.pyx|. That function performs a dictionary
 lookup for the word, based on the \verb|config/vocab.txt| file, and returns its
 index on success or \verb|-1| if the word is not known. The Filter will
-assemble the indices in a \verb|long* window| variable until enough words are
+assemble valid indices in a \verb|long* window| variable until enough words are
 received to send the context window to the Batcher. If a word received from the
 Tokenizer is empty, the Filter sets the first element in the context window to
-\verb|-1| and sends the window to the Batcher for termination.
+\verb|-1| and sends the window to a Batcher for termination.
 
 \paragraph{Batcher} A Batcher is a rather simple pure C routine, that first
 assembles the context windows into a batch, simultaneously converting
@@ -319,7 +319,7 @@ the Learner sends \verb|-1| when announcing itself, then the Batcher will
 terminate immediately.
 
 \paragraph{Learner} A Learner, implemented in \verb|learner| function in
-\verb|main.c| first creates a TensorFlow neural network object and stores the
+\verb|main.c|, first creates a TensorFlow neural network object and stores the
 network as a \verb|PyObject*|. It also initializes a C \verb|WeightList| struct
 to store the network weights and to serve as a buffer for communication with
 the Dispatcher. It then waits for the Dispatcher to announce a new training
